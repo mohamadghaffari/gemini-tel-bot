@@ -1,0 +1,6 @@
+python-dotenv
+pyTelegramBotAPI
+google-genai==1.11.0
+supabase
+gunicorn
+google-api-core
