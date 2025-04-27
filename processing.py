@@ -49,7 +49,7 @@ def _handle_ai_interaction(
     chat_id = message.chat.id
     model_for_user = user_settings.get("selected_model", DEFAULT_MODEL_NAME)
     try:
-        waiting_animation = bot_instance.send_animation(chat_id, animation='BAACAgQAAxkBAAICLmgNboExi8JGRByeLZgG33L2a0W6AALWGwACJbhpUMP9FGIy5-vmNgQ')
+        waiting_animation = bot_instance.send_animation(chat_id, animation='CgACAgQAAxkBAAEW9c9oDYLeAvr4V20O1J2EbCjyomoqdAACfhoAAuQMcFBgfwXG6g6DFDYE')
         history_content = get_history_from_db(chat_id)
         if history_content is None:
             bot_instance.reply_to(
