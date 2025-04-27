@@ -1,8 +1,8 @@
 import json
 import logging
-import telebot 
+import telebot
 from telebot import types as telebot_types
-import handlers 
+import handlers
 from bot import get_bot_instance
 
 logger = logging.getLogger(__name__)
@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 _global_bot_instance: telebot.TeleBot | None = None
 _initialization_error: bool = False
+
 
 def initialize_bot():
     """Creates the bot instance and registers handlers once per worker."""
@@ -22,7 +23,9 @@ def initialize_bot():
     temp_bot_instance = get_bot_instance()
 
     if temp_bot_instance is None:
-        logger.critical("Failed to create bot instance (get_bot_instance returned None). Worker cannot process requests.")
+        logger.critical(
+            "Failed to create bot instance (get_bot_instance returned None). Worker cannot process requests."
+        )
         _initialization_error = True
         return None
 
@@ -33,10 +36,11 @@ def initialize_bot():
         _global_bot_instance = temp_bot_instance
     except Exception as e:
         logger.critical(f"Failed to register webhook handlers: {e}", exc_info=True)
-        _initialization_error = True 
+        _initialization_error = True
         _global_bot_instance = None
 
     return _global_bot_instance
+
 
 _global_bot_instance = initialize_bot()
 
@@ -54,7 +58,9 @@ def app(environ: dict, start_response):
     response_body = b"OK"
 
     if _global_bot_instance is None:
-        logger.error("Cannot process webhook request: Bot instance is not available (initialization failed).")
+        logger.error(
+            "Cannot process webhook request: Bot instance is not available (initialization failed)."
+        )
         status = "500 Internal Server Error"
         response_body = b"Bot not configured or initialization failed"
         start_response(status, headers)
@@ -82,7 +88,9 @@ def app(environ: dict, start_response):
 
                         # Process the update using the pre-initialized global bot instance
                         current_bot_instance.process_new_updates([update])
-                        logger.info(f"Webhook finished processing update ID: {update.update_id}")
+                        logger.info(
+                            f"Webhook finished processing update ID: {update.update_id}"
+                        )
                         # Keep status 200 OK
 
                     except json.JSONDecodeError:
@@ -92,7 +100,9 @@ def app(environ: dict, start_response):
                         response_body = b"Invalid JSON body"
                     except Exception as e:
                         # Catch any other errors during Telebot's processing
-                        logger.exception(f"Error in process_new_updates for update ID {getattr(update, 'update_id', 'N/A')}:")
+                        logger.exception(
+                            f"Error in process_new_updates for update ID {getattr(update, 'update_id', 'N/A')}:"
+                        )
                         # Always return 200 OK to Telegram even if processing failed internally
                         status = "200 OK"
                         response_body = b"Processing Error (check logs)"

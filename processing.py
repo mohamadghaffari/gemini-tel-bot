@@ -49,7 +49,11 @@ def _handle_ai_interaction(
     chat_id = message.chat.id
     model_for_user = user_settings.get("selected_model", DEFAULT_MODEL_NAME)
     try:
-        waiting_animation = bot_instance.send_animation(chat_id, animation='CgACAgQAAxkBAAEW9c9oDYLeAvr4V20O1J2EbCjyomoqdAACfhoAAuQMcFBgfwXG6g6DFDYE')
+        waiting_animation = bot_instance.send_animation(
+            chat_id,
+            animation="CgACAgQAAxkBAAEW9c9oDYLeAvr4V20O1J2EbCjyomoqdAACfhoAAuQMcFBgfwXG6g6DFDYE",
+            caption="Working my magic... please wait a moment. ✨",
+        )
         history_content = get_history_from_db(chat_id)
         if history_content is None:
             bot_instance.reply_to(
@@ -390,7 +394,9 @@ def _handle_ai_interaction(
             logger.info(f"Replying to {chat_id}...")
             split_and_send_message(message, model_response_text, bot_instance)
             # Remove progressing text after message is sent
-            bot_instance.delete_message(waiting_animation.chat.id, waiting_animation.message_id)
+            bot_instance.delete_message(
+                waiting_animation.chat.id, waiting_animation.message_id
+            )
 
         else:
             logger.error(
@@ -409,7 +415,8 @@ def _handle_ai_interaction(
             message, "An unexpected error occurred during processing."
         )
         logger.error(
-            f"Error preparing or downloading photo for {chat_id}: {outer_e}", exc_info=True
+            f"Error preparing or downloading photo for {chat_id}: {outer_e}",
+            exc_info=True,
         )
         bot_instance.reply_to(
             message, "Sorry, I encountered an error processing the image."
@@ -417,10 +424,14 @@ def _handle_ai_interaction(
 
     finally:
         try:
-            if waiting_animation: 
-                bot_instance.delete_message(waiting_animation.chat.id, waiting_animation.message_id)
+            if waiting_animation:
+                bot_instance.delete_message(
+                    waiting_animation.chat.id, waiting_animation.message_id
+                )
         except Exception as delete_e:
-            logger.warning(f"Failed to delete 'Processing' message {waiting_animation.message_id} for chat {chat_id}: {delete_e}")
+            logger.warning(
+                f"Failed to delete 'Processing' message {waiting_animation.message_id} for chat {chat_id}: {delete_e}"
+            )
 
 
 def process_user_message(
