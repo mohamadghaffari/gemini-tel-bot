@@ -15,3 +15,7 @@ MAX_HISTORY_LENGTH_TURNS: int = 20
 
 # --- Usage Limits (if applicable) ---
 DEFAULT_KEY_MESSAGE_LIMIT: int = 5
+
+LOADING_ANIMATION_FILE_ID: str = (
+    "CgACAgQAAxkBAAEW9c9oDYLeAvr4V20O1J2EbCjyomoqdAACfhoAAuQMcFBgfwXG6g6DFDYE"
+)

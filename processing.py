@@ -13,7 +13,7 @@ from google.api_core.exceptions import (
     PermissionDenied,
     ResourceExhausted,
 )
-from config import DEFAULT_MODEL_NAME
+from config import DEFAULT_MODEL_NAME, LOADING_ANIMATION_FILE_ID
 from custom_types import UserSettings
 from db import (
     get_history_from_db,
@@ -46,12 +46,13 @@ def _handle_ai_interaction(
     Handles the core AI chat interaction: fetching history, creating chat,
     sending message, saving new turns, getting response, and sending reply.
     """
+    processing_completed_successfully = False
     chat_id = message.chat.id
     model_for_user = user_settings.get("selected_model", DEFAULT_MODEL_NAME)
     try:
         waiting_animation = bot_instance.send_animation(
             chat_id,
-            animation="CgACAgQAAxkBAAEW9c9oDYLeAvr4V20O1J2EbCjyomoqdAACfhoAAuQMcFBgfwXG6g6DFDYE",
+            animation=LOADING_ANIMATION_FILE_ID,
             caption="Working my magic... please wait a moment. ✨",
         )
         history_content = get_history_from_db(chat_id)
@@ -397,6 +398,7 @@ def _handle_ai_interaction(
             bot_instance.delete_message(
                 waiting_animation.chat.id, waiting_animation.message_id
             )
+            processing_completed_successfully = True
 
         else:
             logger.error(
@@ -424,7 +426,10 @@ def _handle_ai_interaction(
 
     finally:
         try:
-            if waiting_animation:
+            if (
+                not processing_completed_successfully
+                and waiting_animation.message_id is not None
+            ):
                 bot_instance.delete_message(
                     waiting_animation.chat.id, waiting_animation.message_id
                 )
