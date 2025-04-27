@@ -415,6 +415,13 @@ def _handle_ai_interaction(
             message, "Sorry, I encountered an error processing the image."
         )
 
+    finally:
+        try:
+            if waiting_animation: 
+                bot_instance.delete_message(waiting_animation.chat.id, waiting_animation.message_id)
+        except Exception as delete_e:
+            logger.warning(f"Failed to delete 'Processing' message {waiting_animation.message_id} for chat {chat_id}: {delete_e}")
+
 
 def process_user_message(
     message: telebot_types.Message,
