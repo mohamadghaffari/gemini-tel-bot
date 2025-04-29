@@ -1,18 +1,7 @@
 import sys
 import logging
-from config import BOT_MODE
-from dotenv import load_dotenv
-from bot import get_bot_instance
 import handlers
-
-try:
-    load_dotenv()
-    print("Attempted to load environment variables from .env")
-except ImportError:
-    print(
-        "Warning: python-dotenv not installed. Cannot load .env file.", file=sys.stderr
-    )
-    pass  # Continue execution, environment variables will be read from the system
+from config import BOT_MODE
 
 log_level = logging.DEBUG if BOT_MODE == "polling" else logging.INFO
 logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")

@@ -121,7 +121,7 @@ This uses a web server (Gunicorn) to handle updates via a webhook.
 
 1.  **Prerequisites:**
     *   A Git repository with your latest code pushed.
-    *   A [Railway](https://railway.app/) account (or similar PaaS supporting Python WSGI apps).
+    *   A [Railway](https://railway.com?referralCode=6U8dFG) account (or similar PaaS supporting Python WSGI apps).
 2.  **Code Structure:** Ensure your project includes:
     *   `requirements.txt` (Pinned production dependencies, **NO** `python-dotenv` or dev tools).
     *   `requirements-dev.txt` (For local use, includes `python-dotenv`).

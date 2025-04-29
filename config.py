@@ -1,4 +1,11 @@
 import os
+from dotenv import load_dotenv
+
+env_path = load_dotenv(verbose=True, override=False)
+if env_path:
+    print(f"Loaded environment variables from:{env_path}")
+else:
+    print("No .env file found or python-dotenv not installed.")
 
 # --- Env variables ---
 BOT_MODE = os.getenv(
@@ -17,5 +24,5 @@ MAX_HISTORY_LENGTH_TURNS: int = 20
 DEFAULT_KEY_MESSAGE_LIMIT: int = 5
 
 LOADING_ANIMATION_FILE_ID: str = (
-    "CgACAgQAAxkBAAEW9c9oDYLeAvr4V20O1J2EbCjyomoqdAACfhoAAuQMcFBgfwXG6g6DFDYE"
+    "BAACAgQAAxkBAAIHpGgQtb7K66BEXtOAo4v3R9TBH1XRAALWGwACJbhpUF_ZfF4mEh3HNgQ"
 )
