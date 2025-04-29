@@ -1,11 +1,17 @@
 import os
-from dotenv import load_dotenv
 
-env_path = load_dotenv(verbose=True, override=False)
-if env_path:
-    print(f"Loaded environment variables from:{env_path}")
-else:
-    print("No .env file found or python-dotenv not installed.")
+try:
+    from dotenv import load_dotenv
+
+    env_path = load_dotenv(verbose=True, override=False)
+    if env_path:
+        print(f"INFO: Loaded environment variables from: {env_path}")
+    else:
+        print("DEBUG: No .env file found.")
+
+except ImportError:
+    print("DEBUG: python-dotenv not installed, skipping .env file load.")
+    pass
 
 # --- Env variables ---
 BOT_MODE = os.getenv(
