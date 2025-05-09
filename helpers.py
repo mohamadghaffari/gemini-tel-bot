@@ -83,7 +83,7 @@ def split_and_send_message(
                     )
             except Exception as send_error:
                 print(f"Error sending item {item.content_type}: {send_error}")
-                bot_instance._bot_instance.send_message(
+                bot_instance.send_message(
                     message.chat.id,
                     f"⚠️ Error processing part of the message: {send_error}",
                 )
