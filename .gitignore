@@ -1,3 +1,4 @@
 .env
+.venv
 local.py
 __pycache__

@@ -1,21 +1,21 @@
 import logging
 import telebot
 from telebot import types as telebot_types
-from config import (
+from .config import (
     DEFAULT_KEY_MESSAGE_LIMIT,
     DEFAULT_MODEL_NAME,
     GEMINI_BOT_DEFAULT_API_KEY,
 )
-from db import (
+from .db import (
     get_supabase_client,
     clear_history_in_db,
     get_user_settings_from_db,
     save_user_settings_to_db,
 )
 from telegramify_markdown import standardize
-from gemini_utils import fetch_available_models_for_user
-from helpers import split_and_send_message, check_db_and_settings, check_ai_client
-from processing import (
+from .gemini_utils import fetch_available_models_for_user
+from .helpers import split_and_send_message, check_db_and_settings, check_ai_client
+from .processing import (
     process_user_message,
     process_text_message,
     process_photo_message,

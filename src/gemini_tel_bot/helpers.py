@@ -3,17 +3,17 @@ import asyncio
 import logging
 from google import genai
 import telegramify_markdown
-from custom_types import UserSettings
-from gemini_utils import get_user_client
+from .custom_types import UserSettings
+from .gemini_utils import get_user_client
 from telebot import types as telebot_types
 from telegramify_markdown.type import ContentTypes
 from telegramify_markdown.customize import get_runtime_config
-from config import (
+from .config import (
     DEFAULT_KEY_MESSAGE_LIMIT,
     DEFAULT_MODEL_NAME,
     GEMINI_BOT_DEFAULT_API_KEY,
 )
-from db import get_supabase_client, get_user_settings_from_db, save_user_settings_to_db
+from .db import get_supabase_client, get_user_settings_from_db, save_user_settings_to_db
 from telegramify_markdown.interpreters import (
     TextInterpreter,
     FileInterpreter,

@@ -1,3 +1,41 @@
+[project]
+name = "gemini-tel-bot"
+version = "0.1.0"
+description = "A versatile Telegram bot built with Python that allows users to chat with Google Gemini models."
+authors = [
+    {name = "Mohammad GhaffariFar", email = "mohammaddevgermany@gmail.com"},
+]
+readme = "README.md"
+requires-python = "^3.11"
+dependencies = [
+    "pytelegrambotapi",
+    "google-genai==1.14.0",
+    "supabase",
+    "gunicorn",
+    "google-api-core",
+    "telegramify-markdown[mermaid]",
+    "google-adk",
+]
+
+[tool.poetry]
+packages = [
+    { include = "gemini_tel_bot", from = "src" }
+]
+include = [
+    "Procfile"
+]
+
+[project.scripts]
+run-gemini-bot = "gemini_tel_bot.cli:main"
+
+[tool.poetry.group.dev.dependencies]
+python-dotenv = "*"
+black = "*"
+
 [tool.black]
 line-length = 88
-target-version = ['py311']
+target-version = ["py311"]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

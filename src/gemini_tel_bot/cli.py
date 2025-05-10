@@ -1,26 +1,29 @@
 import sys
 import logging
-import handlers
-from config import BOT_MODE
+from gemini_tel_bot import handlers
+from gemini_tel_bot.config import BOT_MODE
+from gemini_tel_bot.bot import get_bot_instance
 
+# Logger setup should be done once, ideally when the module is imported
+# or within the main function if it's only for this script.
+# For now, let's keep it similar to run.py's structure.
 log_level = logging.DEBUG if BOT_MODE == "polling" else logging.INFO
 logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 if BOT_MODE == "polling":
+    # These specific logger level adjustments are only for polling mode
     logging.getLogger("telebot").setLevel(logging.DEBUG)
     logging.getLogger("google.api_core").setLevel(logging.DEBUG)
     logging.getLogger("google.genai").setLevel(logging.DEBUG)
-    logger.debug("Debug logging enabled.")
+    logger.debug("Debug logging enabled for polling mode in cli.py.")
 
-from bot import get_bot_instance
 
-if __name__ == "__main__":
-    logger.info(f"Starting application in {BOT_MODE} mode.")
+def main():
+    """Main function to run the bot in polling mode."""
+    logger.info(f"Starting application via CLI in {BOT_MODE} mode.")
 
     if BOT_MODE == "polling":
-        # This block runs ONLY when run.py is executed directly AND BOT_MODE is 'polling'
-
         logger.info("Initializing bot for polling...")
         telegram_bot = get_bot_instance()
 
@@ -39,13 +42,11 @@ if __name__ == "__main__":
                     logger.info("No active webhook found.")
 
             except Exception as e:
-                # Catch potential errors during get_webhook_info or delete_webhook
                 logger.error(f"Error checking/deleting webhook: {e}", exc_info=True)
-                # Continue polling even if webhook deletion fails, might still work depending on Telegram state
+                # Continue polling even if webhook deletion fails
 
             logger.info("Starting bot polling...")
             try:
-                # Start the polling loop
                 telegram_bot.infinity_polling()
             except Exception as e:
                 logger.critical(f"Bot polling failed: {e}", exc_info=True)
@@ -53,19 +54,20 @@ if __name__ == "__main__":
         else:
             logger.critical("Failed to get bot instance. Cannot start polling.")
             sys.exit(1)
-
     elif BOT_MODE == "webhook":
-        # In webhook mode, the WSGI server (like Gunicorn/uvicorn) will import
-        # and run the 'app' from api/webhook.py.
-        # api/webhook.py must call get_bot_instance() itself when a request arrives.
-        # This script doesn't do anything further in this mode.
         logger.info(
-            "Running in webhook mode. Relying on WSGI server to import api/webhook.py and handle requests."
+            "CLI invoked in webhook mode. This script is intended for polling mode. "
+            "For webhook, ensure your WSGI server (e.g., Gunicorn) is configured to use "
+            "gemini_tel_bot.api.webhook:app."
         )
-        # The process running this script will likely just wait for the WSGI server.
-        pass  # Exit the if name == "main": block
     else:
         logger.critical(
-            f"Invalid BOT_MODE specified: '{BOT_MODE}'. Must be 'polling' or 'webhook'."
+            f"Invalid BOT_MODE specified via CLI: '{BOT_MODE}'. Must be 'polling' or 'webhook'."
         )
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    # This allows running `python src/gemini_tel_bot/cli.py` directly for testing,
+    # though the poetry script `poetry run run-gemini-bot` will be the standard way.
+    main()

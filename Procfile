@@ -1,1 +1,1 @@
-web: gunicorn api.webhook:app --bind 0.0.0.0:$PORT -w 2
+web: poetry run gunicorn gemini_tel_bot.api.webhook:app --bind 0.0.0.0:$PORT

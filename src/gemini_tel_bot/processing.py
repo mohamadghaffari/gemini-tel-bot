@@ -13,9 +13,9 @@ from google.api_core.exceptions import (
     PermissionDenied,
     ResourceExhausted,
 )
-from config import DEFAULT_MODEL_NAME, LOADING_ANIMATION_FILE_ID
-from custom_types import UserSettings
-from db import (
+from .config import DEFAULT_MODEL_NAME, LOADING_ANIMATION_FILE_ID
+from .custom_types import UserSettings
+from .db import (
     get_history_from_db,
     save_turn_to_db,
     get_supabase_client,
@@ -23,7 +23,7 @@ from db import (
     save_user_settings_to_db,
     clear_history_in_db,
 )
-from helpers import (
+from .helpers import (
     split_and_send_message,
     check_db_and_settings,
     check_ai_client,

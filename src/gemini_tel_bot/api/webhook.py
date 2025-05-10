@@ -2,8 +2,8 @@ import json
 import logging
 import telebot
 from telebot import types as telebot_types
-import handlers
-from bot import get_bot_instance
+from .. import handlers
+from ..bot import get_bot_instance
 
 logger = logging.getLogger(__name__)
 

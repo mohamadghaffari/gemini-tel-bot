@@ -23,12 +23,15 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # --- Model Configuration ---
-DEFAULT_MODEL_NAME: str = "models/gemini-1.5-flash-latest"
-MAX_HISTORY_LENGTH_TURNS: int = 20
+DEFAULT_MODEL_NAME: str = os.getenv(
+    "DEFAULT_MODEL_NAME", "models/gemini-1.5-flash-latest"
+)
+MAX_HISTORY_LENGTH_TURNS: int = int(os.getenv("MAX_HISTORY_LENGTH_TURNS", "20"))
 
 # --- Usage Limits (if applicable) ---
-DEFAULT_KEY_MESSAGE_LIMIT: int = 5
+DEFAULT_KEY_MESSAGE_LIMIT: int = int(os.getenv("DEFAULT_KEY_MESSAGE_LIMIT", "5"))
 
-LOADING_ANIMATION_FILE_ID: str = (
-    "BAACAgQAAxkBAAIHpGgQtb7K66BEXtOAo4v3R9TBH1XRAALWGwACJbhpUF_ZfF4mEh3HNgQ"
+LOADING_ANIMATION_FILE_ID: str = os.getenv(
+    "LOADING_ANIMATION_FILE_ID",
+    "BAACAgQAAxkBAAIHpGgQtb7K66BEXtOAo4v3R9TBH1XRAALWGwACJbhpUF_ZfF4mEh3HNgQ",
 )

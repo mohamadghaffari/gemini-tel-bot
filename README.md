@@ -13,11 +13,11 @@ A versatile Telegram bot built with Python that allows users to chat with Google
 *   **📊 Current Settings:** View active API key status, chosen model, and default key message count using `/current_settings`.
 *   **↩️ Chat Reset:** Clear conversation history using `/reset`.
 *   **🚀 Flexible Deployment:** Supports both **Webhook** mode (recommended for production, requires a publicly accessible server) and **Long Polling** mode (easier for local development and testing).
-*   **💅 Rich Formatting (Thanks  [telegramify-markdown](https://github.com/sudoskys/telegramify-markdown/)):** 
+*   **💅 Rich Formatting (Thanks to [telegramify-markdown](https://github.com/sudoskys/telegramify-markdown/)):**
     *   Properly formats Markdown in AI responses for Telegram (`MarkdownV2`).
     *   Sends code blocks detected in responses as downloadable `.txt` files for better readability and usability.
     *   Renders Mermaid diagrams (e.g., flowcharts, sequence diagrams) directly in the chat if the AI generates them in a Mermaid code block.
-    *  Latex Visualization(escape) and Expanded Citation.
+    *   Latex Visualization (escaped) and Expanded Citation.
 
 ## 📝 Important Notes & Context
 
@@ -32,6 +32,7 @@ A versatile Telegram bot built with Python that allows users to chat with Google
 
 *   Python 3.11+
 *   Git
+*   Poetry (see [Poetry installation guide](https://python-poetry.org/docs/#installation))
 *   A [Supabase](https://supabase.com/) account and project.
 *   A [Telegram Bot Token](https://core.telegram.org/bots#6-botfather). You might want **two** tokens: one for production deployment and one specifically for local testing.
 *   A [Google AI Studio / Google Cloud Project](https://aistudio.google.com/app/apikey) to get a Gemini API Key (can be used as the bot's default or provided by users).
@@ -86,21 +87,36 @@ This is recommended for development and testing.
 
 1.  **Clone the Repository:**
     ```bash
-    git clone <your-repo-url>
-    cd <repo-directory>
+    git clone https://github.com/mohamadghaffari/gemini-tel-bot
+    cd <gemini-tel-bot>
     ```
-2.  **Create & Activate Virtual Environment:**
+2.  **Install Dependencies & Prepare Environment:** Poetry will create and manage a virtual environment for you.
     ```bash
-    python -m venv .venv
-    source .venv/bin/activate # Linux/macOS
-    # OR
-    .\.venv\Scripts\activate # Windows
+    poetry install
     ```
-3.  **Install Dependencies:** Install both runtime and development dependencies.
-    ```bash
-    pip install -r requirements-dev.txt
-    ```
-4.  **Create `.env` File:** Create a file named `.env` in the project root. **Do not commit this file to Git!** Add it to your `.gitignore`. Populate it with your **local testing credentials**:
+    Poetry automatically manages the project's virtual environment. To execute commands within this environment, you have two main options:
+
+    *   **Using `poetry run` (Recommended for most single commands):**
+        This is the simplest way for one-off commands, like starting the bot. Poetry handles executing the command within the correct isolated environment.
+        Example: `poetry run run-gemini-bot`
+
+    *   **Activating the environment in your current shell (for multiple commands):**
+        If you want to run multiple commands without typing `poetry run` each time, you can activate the virtual environment directly in your current shell session. The command depends on your shell:
+        *   **Bash/Zsh:**
+            ```bash
+            eval "$(poetry env activate)"
+            ```
+        *   **Fish:**
+            ```fish
+            poetry env activate fish | source
+            ```
+        *   **PowerShell:**
+            ```powershell
+            poetry env activate ps1 | Invoke-Expression
+            ```
+        After running the appropriate command, your shell prompt might change to indicate the active environment (e.g., `(gemini-tel-bot-py3.11) $`). You can then run the script directly (e.g., `run-gemini-bot` if it's on PATH, or use `poetry run run-gemini-bot`). To "deactivate" or leave this state, it's usually easiest to close the current terminal tab/window and open a new one.
+
+3.  **Create `.env` File:** Create a file named `.env` in the project root by copying `.env.example` (e.g., `cp .env.example .env`). **Do not commit the `.env` file to Git!** It should already be in your `.gitignore`. Populate `.env` with your **local testing credentials**:
     ```dotenv
     # .env - For Local Development Only
     BOT_MODE=polling
@@ -109,9 +125,9 @@ This is recommended for development and testing.
     SUPABASE_KEY=<YOUR_SUPABASE_SERVICE_ROLE_KEY> # Use service_role key
     GEMINI_BOT_DEFAULT_API_KEY=<YOUR_GEMINI_API_KEY> # Optional default key
     ```
-5.  **Run the Bot:**
+4.  **Run the Bot (Polling Mode):**
     ```bash
-    python run.py
+    poetry run run-gemini-bot
     ```
     The bot will start polling Telegram for updates using your *local testing* bot token. You can interact with this test bot instance. Use `Ctrl+C` to stop.
 
@@ -123,15 +139,15 @@ This uses a web server (Gunicorn) to handle updates via a webhook.
     *   A Git repository with your latest code pushed.
     *   A [Railway](https://railway.com?referralCode=6U8dFG) account (or similar PaaS supporting Python WSGI apps).
 2.  **Code Structure:** Ensure your project includes:
-    *   `requirements.txt` (Pinned production dependencies, **NO** `python-dotenv` or dev tools).
-    *   `requirements-dev.txt` (For local use, includes `python-dotenv`).
-    *   `Procfile` (e.g., `web: gunicorn api.webhook:app --bind 0.0.0.0:$PORT`)
-    *   `run.py` (Handles mode switching).
+    *   `pyproject.toml` (Defines dependencies and project metadata for Poetry. Railway will use this to install dependencies.)
+    *   `poetry.lock` (Ensures deterministic builds by locking dependency versions. Crucial for reproducible deployments on Railway.)
+    *   `Procfile` (e.g., `web: poetry run gunicorn api.webhook:app --bind 0.0.0.0:$PORT`)
+    *   `src/gemini_tel_bot/cli.py` (Handles polling mode startup, invoked by `run-gemini-bot` script).
     *   `api/webhook.py` (WSGI entry point).
     *   All other Python modules (`bot.py`, `handlers.py`, `config.py`, etc.).
 3.  **Railway Project Setup:**
     *   Create a new Railway project linked to your Git repository.
-    *   Railway should detect the `Procfile`.
+    *   Railway should detect the `Procfile` and, given the `pyproject.toml` and `poetry.lock` files, will use Poetry to build your environment.
 4.  **Configure Environment Variables on Railway:**
     *   In Railway's "Variables" tab, set the following (use your **production** credentials):
         *   `BOT_MODE`: `webhook` (Ensure this is set)
@@ -139,10 +155,11 @@ This uses a web server (Gunicorn) to handle updates via a webhook.
         *   `SUPABASE_URL`: `<YOUR_SUPABASE_URL>`
         *   `SUPABASE_KEY`: `<YOUR_SUPABASE_SERVICE_ROLE_KEY>`
         *   `GEMINI_BOT_DEFAULT_API_KEY`: `<YOUR_GEMINI_API_KEY>` (Optional)
+        *   `PYTHON_VERSION`: `3.11` (Or your target Python version, good practice for Railway)
 5.  **Deploy:** Railway will build and deploy based on your Git pushes. Monitor build/deploy logs.
 6.  **Set Telegram Webhook:**
     *   Get your Railway service's public URL (e.g., `https://your-app-name.up.railway.app`).
-    *   Construct the full webhook URL: `https://your-app-name.up.railway.app/api/webhook` (assuming your `webhook.py` is in an `api` directory and Procfile points to it).
+    *   Construct the full webhook URL: `https://your-app-name.up.railway.app/api/webhook` (This assumes your `api/webhook.py` defines a route that results in this path. For example, if `api/webhook.py` creates a Flask app with `@app.route('/api/webhook')`, or a Blueprint mounted at `/api` with a `/webhook` route).
     *   Set the webhook via browser or `curl`:
         ```
         https://api.telegram.org/bot<YOUR_PRODUCTION_BOT_TOKEN>/setWebhook?url=<YOUR_FULL_WEBHOOK_URL>
@@ -166,7 +183,7 @@ Start a chat with your bot on Telegram (either the local test instance or the de
 
 ## 🐛 Debugging
 
-*   **Local (Polling):** Check the console output where you ran `python run.py`. Increase log levels if needed.
+*   **Local (Polling):** Check the console output where you ran `poetry run run-gemini-bot`. Increase log levels if needed (see `src/gemini_tel_bot/cli.py`).
 *   **Production (Webhook):**
     *   **Railway Logs:** Your primary debugging tool.
     *   **Telegram Webhook Info:** Use `https://api.telegram.org/bot<TOKEN>/getWebhookInfo` to check for errors reported by Telegram (`last_error_message`, `last_error_date`) and the pending update count. Ensure the URL matches exactly what you set.

@@ -2,11 +2,30 @@ import logging
 from time import time
 from typing import Any
 from google import genai
-from custom_types import UserSettings
-from config import GEMINI_BOT_DEFAULT_API_KEY
+from .custom_types import UserSettings
+from .config import GEMINI_BOT_DEFAULT_API_KEY
 from google.api_core.exceptions import PermissionDenied
 
 logger = logging.getLogger(__name__)
+
+COMMON_MODELS_TO_SHOW = [
+    "gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-pro-preview-05-06",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-preview-image-generation", # Image generation
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-latest", # Alias for gemini-1.5-flash
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+    "gemini-1.5-pro-latest",   # Alias for gemini-1.5-pro
+    # "imagen-3.0-generate-002", # Image generation
+    "veo-2.0-generate-001",    # Video generation
+    # "gemini-2.0-flash-live-001", # Primarily voice/video, but often supports text
+    # Older, but still common chat models:
+    "gemini-1.0-pro",
+    "gemini-pro", # Alias for gemini-1.0-pro
+]
 
 _cached_genai_clients: dict[str, genai.Client] = {}
 
@@ -76,26 +95,26 @@ def fetch_available_models_for_user(
         generative_models_info: list[dict[str, Any]] = []
         logger.debug("Filtering raw models:")
         for m in models_list_raw:
-            model_name = getattr(m, "name", "")
-            supported_methods = getattr(m, "supported_generation_methods", [])
+            model_name = getattr(m, "name", "") # Full name e.g., "models/gemini-1.5-pro-latest"
             description = getattr(m, "description", "")
 
-            is_gemini_like_name = (
-                "gemini-" in model_name.lower()
-                or model_name.startswith("models/gemini-")
-            )
-            is_embedding = "embedding" in model_name.lower()
-            is_aqa = "aqa" in model_name.lower()
-            is_tuned = "tunedModels/" in model_name
+            # Extract the base model name (e.g., "gemini-1.5-pro-latest")
+            base_model_name = model_name.split('/')[-1]
 
+            # Specific exclusions based on keywords in the full model name
+            is_embedding = "embedding" in model_name.lower()
+            is_aqa = "aqa" in model_name.lower() # Attributed Question Answering models
+            is_tuned = model_name.startswith("tunedModels/") # User-tuned models
+
+            # Check if the base model name is in our curated list and not an excluded type
             if (
                 model_name
-                and is_gemini_like_name
+                and base_model_name in COMMON_MODELS_TO_SHOW
                 and not is_embedding
                 and not is_aqa
                 and not is_tuned
             ):
-                logger.debug(f"  -> Keeping model: {model_name}")
+                logger.debug(f"  -> Keeping model from curated list: {model_name} (base: {base_model_name})")
 
                 model_info = {"name": model_name}
                 model_info["description"] = description

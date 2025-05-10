@@ -3,9 +3,9 @@ import logging
 from time import time
 from google.genai import types
 from supabase import create_client, Client
-from custom_types import UserSettings, HistoryTurn
+from .custom_types import UserSettings, HistoryTurn
 from supabase.lib.client_options import ClientOptions
-from config import (
+from .config import (
     DEFAULT_MODEL_NAME,
     SUPABASE_URL,
     SUPABASE_KEY,

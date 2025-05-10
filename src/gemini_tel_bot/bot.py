@@ -1,7 +1,7 @@
 import time
 import logging
 import telebot
-from config import BOT_API_KEY
+from .config import BOT_API_KEY
 
 logger = logging.getLogger(__name__)
 
