@@ -51,9 +51,49 @@ A versatile Telegram bot built with Python that allows users to chat with Google
 
 ### 2. Supabase Database Setup
 
-*   To use the bot, you only need to provide your Supabase URL and `service_role` key in the `.env` file.
-*   **Note:** The bot automatically initializes the database tables (`user_settings` and `chat_history`) if they don't exist, so you no longer need to use the SQL Editor or manually create the tables.
+This bot requires two tables in your Supabase project: `user_settings` and `chat_history`. You'll need to create these manually using the Supabase SQL Editor.
 
+1.  Go to your [Supabase project dashboard](https://supabase.com/dashboard).
+2.  In the left sidebar, navigate to the **SQL Editor**.
+3.  Click on **"New query"** (or "+ New query").
+4.  Copy the entire SQL block below and paste it into the query editor.
+5.  Click **"RUN"**.
+
+    ```sql
+    -- Create user_settings table
+    CREATE TABLE IF NOT EXISTS public.user_settings (
+      chat_id BIGINT PRIMARY KEY,
+      gemini_api_key TEXT NULL,
+      selected_model TEXT NOT NULL DEFAULT 'models/gemini-1.5-flash-latest',
+      message_count INTEGER NOT NULL DEFAULT 0
+    );
+
+    COMMENT ON TABLE public.user_settings IS 'Stores user-specific settings like API keys and selected models.';
+    COMMENT ON COLUMN public.user_settings.chat_id IS 'Telegram Chat ID (Primary Key)';
+    COMMENT ON COLUMN public.user_settings.gemini_api_key IS 'User-provided Gemini API Key (nullable)';
+    COMMENT ON COLUMN public.user_settings.selected_model IS 'Gemini model selected by the user';
+    COMMENT ON COLUMN public.user_settings.message_count IS 'Message counter for users on the default API key';
+
+    -- Create chat_history table
+    CREATE TABLE IF NOT EXISTS public.chat_history (
+      chat_id BIGINT NOT NULL,
+      turn_index INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      parts_json JSONB NULL, -- Can be NULL if a turn has no content (e.g., initial state)
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- Optional: Track creation time
+      PRIMARY KEY (chat_id, turn_index) -- Composite primary key
+    );
+
+    COMMENT ON TABLE public.chat_history IS 'Stores the conversation history turns.';
+    COMMENT ON COLUMN public.chat_history.chat_id IS 'Telegram Chat ID';
+    COMMENT ON COLUMN public.chat_history.turn_index IS 'Sequential index of the turn within a chat';
+    COMMENT ON COLUMN public.chat_history.role IS 'Role of the turn owner (user or model)';
+    COMMENT ON COLUMN public.chat_history.parts_json IS 'JSONB array storing the parts (text, image placeholders) of the turn';
+
+    -- Optional but Recommended: Create an index for faster history lookups
+    CREATE INDEX IF NOT EXISTS idx_chat_history_chat_id_turn_index ON public.chat_history(chat_id, turn_index);
+    ```
+*   Your existing "Security Note" about the `service_role` key can remain directly after this SQL block.
 *   **(Security Note):** The provided code typically uses the Supabase `service_role` key, which bypasses Row Level Security (RLS). If you need finer-grained control or plan to expose Supabase keys differently, configure RLS appropriately.
 
 ### 3. Local Setup & Running (Polling Mode)
@@ -67,7 +107,7 @@ This is recommended for development and testing.
     ```
 2.  **Install Dependencies:** uv will create and manage a virtual environment for you.
     ```bash
-    uv sync
+    uv sync --locked --all-extras --dev # For development, includes dev tools
     ```
     uv automatically manages the project's virtual environment. To execute commands within this environment, you can use `uv run`.
     Example: `uv run run-gemini-bot`

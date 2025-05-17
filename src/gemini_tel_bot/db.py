@@ -1,5 +1,4 @@
 import json
-import asyncio
 import logging
 from time import time
 from google.genai import types as genai_types
@@ -17,71 +16,11 @@ from .config import (
 logger = logging.getLogger(__name__)
 _cached_supabase_client: Client | None = None
 
-CREATE_USER_SETTINGS_TABLE = """
-CREATE TABLE IF NOT EXISTS public.user_settings (
-  chat_id BIGINT PRIMARY KEY,
-  gemini_api_key TEXT NULL,
-  selected_model TEXT NOT NULL DEFAULT 'models/gemini-1.5-flash-latest',
-  message_count INTEGER NOT NULL DEFAULT 0
-);
-COMMENT ON TABLE public.user_settings IS 'Stores user-specific settings like API keys and selected models.';
-COMMENT ON COLUMN public.user_settings.chat_id IS 'Telegram Chat ID (Primary Key)';
-COMMENT ON COLUMN public.user_settings.gemini_api_key IS 'User-provided Gemini API Key (nullable)';
-COMMENT ON COLUMN public.user_settings.selected_model IS 'Gemini model selected by the user';
-COMMENT ON COLUMN public.user_settings.message_count IS 'Message counter for users on the default API key';
-"""
-
-CREATE_CHAT_HISTORY_TABLE = """
-CREATE TABLE IF NOT EXISTS public.chat_history (
-  chat_id BIGINT NOT NULL,
-  turn_index INTEGER NOT NULL,
-  role TEXT NOT NULL,
-  parts_json JSONB NULL, -- Can be NULL if a turn has no content (e.g., initial state)
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- Optional: Track creation time
-  PRIMARY KEY (chat_id, turn_index) -- Composite primary key
-);
-COMMENT ON TABLE public.chat_history IS 'Stores the conversation history turns.';
-COMMENT ON COLUMN public.chat_history.chat_id IS 'Telegram Chat ID';
-COMMENT ON COLUMN public.chat_history.turn_index IS 'Sequential index of the turn within a chat';
-COMMENT ON COLUMN public.chat_history.role IS 'Role of the turn owner (user or model)';
-COMMENT ON COLUMN public.chat_history.parts_json IS 'JSONB array storing the parts (text, image placeholders) of the turn';
-CREATE INDEX IF NOT EXISTS idx_chat_history_chat_id_turn_index ON public.chat_history(chat_id, turn_index);
-"""
-
-
-async def initialize_db(supabase_client: Client) -> None:
-    """Initializes the database with the required tables if they don't exist."""
-    try:
-        # Check if user_settings table exists
-        response = (
-            await supabase_client.table("user_settings")
-            .select("*", head=True)
-            .limit(0)
-            .execute()
-        )
-        if response.status_code == 404:  # Table does not exist
-            logger.info("Creating user_settings table...")
-            await supabase_client.from_("").execute(CREATE_USER_SETTINGS_TABLE)
-            logger.info("user_settings table created successfully.")
-
-        # Check if chat_history table exists
-        response = (
-            await supabase_client.table("chat_history")
-            .select("*", head=True)
-            .limit(0)
-            .execute()
-        )
-        if response.status_code == 404:  # Table does not exist
-            logger.info("Creating chat_history table...")
-            await supabase_client.from_("").execute(CREATE_CHAT_HISTORY_TABLE)
-            logger.info("chat_history table created successfully.")
-
-    except Exception as e:
-        logger.error(f"Error initializing database: {e}", exc_info=True)
-
 
 def get_supabase_client() -> Client | None:
-    """Initializes and returns the Supabase client instance (cached)."""
+    """Initializes and returns the Supabase client instance (cached).
+    Assumes database tables are already created.
+    """
     global _cached_supabase_client
     if _cached_supabase_client is None:
         logger.info("Initializing Supabase client...")
@@ -90,7 +29,6 @@ def get_supabase_client() -> Client | None:
                 "SUPABASE_URL or SUPABASE_KEY environment variables not set."
             )
             return None
-
         try:
             start_time = time()
             _cached_supabase_client = create_client(
@@ -103,13 +41,9 @@ def get_supabase_client() -> Client | None:
                 f"Supabase client initialized successfully in {init_time:.4f} seconds."
             )
 
-            # Initialize the database
-            asyncio.run(initialize_db(_cached_supabase_client))
-
         except Exception as e:
             logger.critical(f"Failed to initialize Supabase client: {e}", exc_info=True)
             _cached_supabase_client = None
-
     return _cached_supabase_client
 
 
@@ -152,7 +86,7 @@ def get_user_settings_from_db(chat_id: int) -> UserSettings | None:
                 "selected_model": DEFAULT_MODEL_NAME,
                 "message_count": 0,
             }
-    except Exception as e:
+    except Exception as e:  # Could be PostgrestAPIError if table doesn't exist
         logger.error(
             f"Error fetching settings for {chat_id} from Supabase: {e}", exc_info=True
         )
@@ -188,13 +122,15 @@ def save_user_settings_to_db(
         if response.data:
             logger.debug(f"Supabase upsert response data: {response.data}")
             return True
-        else:
-            logger.error(
-                f"Supabase upsert operation returned no data for {chat_id}. Response: {response}"
-            )
+        elif hasattr(response, "error") and response.error:
+            logger.error(f"Supabase upsert error for {chat_id}: {response.error}")
             return False
-
-    except Exception as e:
+        else:
+            logger.warning(
+                f"Supabase upsert operation returned no data for {chat_id} but no error. Response: {response}"
+            )
+            return True
+    except Exception as e:  # Could be PostgrestAPIError if table doesn't exist
         logger.error(
             f"Error saving settings for {chat_id} to Supabase: {e}", exc_info=True
         )
@@ -229,24 +165,27 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
                 role = row.get("role")
                 parts_data_raw = row.get("parts_json")
                 turn_index_from_db = row.get("turn_index", f"unknown_row_{row_idx}")
-
                 parts_data_intermediate: list[dict[str, Any]] | None = None
 
                 if isinstance(parts_data_raw, str):
                     try:
                         loaded_json = json.loads(parts_data_raw)
-                        if isinstance(loaded_json, list):
+                        if isinstance(loaded_json, list) and all(
+                            isinstance(item, dict) for item in loaded_json
+                        ):
                             parts_data_intermediate = loaded_json
                         else:
                             logger.warning(
-                                f"Decoded parts_json for chat {chat_id}, turn {turn_index_from_db} is not a list: {type(loaded_json)}"
+                                f"Decoded parts_json for chat {chat_id}, turn {turn_index_from_db} is not a list of dicts: {type(loaded_json)}"
                             )
                     except json.JSONDecodeError:
                         logger.error(
                             f"Failed to decode parts_json string for chat {chat_id}, turn {turn_index_from_db}."
                         )
                         continue
-                elif isinstance(parts_data_raw, list):
+                elif isinstance(parts_data_raw, list) and all(
+                    isinstance(item, dict) for item in parts_data_raw
+                ):
                     parts_data_intermediate = parts_data_raw
                 elif parts_data_raw is None:
                     logger.debug(
@@ -255,19 +194,13 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
                     parts_data_intermediate = []
                 else:
                     logger.warning(
-                        f"parts_json for chat {chat_id}, turn {turn_index_from_db} is of unexpected type: {type(parts_data_raw)}. Skipping."
+                        f"parts_json for chat {chat_id}, turn {turn_index_from_db} is of unexpected type or structure: {type(parts_data_raw)}. Skipping."
                     )
                     continue
 
                 if role is not None and parts_data_intermediate is not None:
                     reconstructed_parts: list[genai_types.Part] = []
                     for p_dict in parts_data_intermediate:
-                        if not isinstance(p_dict, dict):
-                            logger.warning(
-                                f"Skipping non-dict item in parts_data for {chat_id}, turn {turn_index_from_db}: {p_dict}"
-                            )
-                            continue
-
                         part_type = p_dict.get("type")
                         if part_type == "text" and "text" in p_dict:
                             reconstructed_parts.append(
@@ -306,7 +239,6 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
                                         )
                                     )
                                 )
-
                     if role in ["user", "model"]:
                         history.append(
                             genai_types.Content(role=role, parts=reconstructed_parts)
@@ -315,9 +247,9 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
                         logger.warning(
                             f"Skipping history row for {chat_id}, turn {turn_index_from_db} with unsupported role '{role}'."
                         )
-                else:
-                    logger.debug(
-                        f"Skipping turn for {chat_id}, turn_index {turn_index_from_db} due to missing role or parts_data."
+                elif role is None:
+                    logger.warning(
+                        f"Skipping turn for {chat_id}, turn_index {turn_index_from_db} due to missing role."
                     )
 
         if MAX_HISTORY_LENGTH_TURNS > 0 and len(history) > MAX_HISTORY_LENGTH_TURNS:
@@ -325,12 +257,8 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
                 f"History length {len(history)} exceeds MAX_HISTORY_LENGTH_TURNS {MAX_HISTORY_LENGTH_TURNS} for {chat_id}. Truncating."
             )
             history = history[-MAX_HISTORY_LENGTH_TURNS:]
-            logger.debug(
-                f"Truncated history for {chat_id}. Final length: {len(history)}"
-            )
-
         return history
-    except Exception as e:
+    except Exception as e:  # Could be PostgrestAPIError if table doesn't exist
         logger.error(
             f"Error fetching or reconstructing history for {chat_id} from Supabase: {e}",
             exc_info=True,
@@ -363,6 +291,9 @@ def save_turn_to_db(
             elif part_object.inline_data is not None:
                 part_dict["type"] = "image"
                 part_dict["mime_type"] = part_object.inline_data.mime_type
+                part_dict["data_placeholder"] = (
+                    f"Image data ({part_object.inline_data.mime_type})"
+                )
             elif part_object.function_response is not None:
                 part_dict["type"] = "function_response"
                 part_dict["function_response"] = {
@@ -381,7 +312,6 @@ def save_turn_to_db(
                     "mime_type": part_object.file_data.mime_type,
                     "file_uri": part_object.file_data.file_uri,
                 }
-
             if part_dict:
                 parts_data_to_save.append(part_dict)
     else:
@@ -396,9 +326,7 @@ def save_turn_to_db(
             "role": role,
             "parts_json": json.dumps(parts_data_to_save),
         }
-
         response = supabase_client.table("chat_history").upsert(data_to_save).execute()
-
         end_time = time() - start_time
         logger.info(
             f"Saved turn {turn_index} for {chat_id} ({role}) to Supabase in {end_time:.4f} seconds."
@@ -406,13 +334,17 @@ def save_turn_to_db(
 
         if response.data:
             return True
-        else:
+        elif hasattr(response, "error") and response.error:
             logger.error(
-                f"Supabase upsert operation returned no data for turn {turn_index} for {chat_id}. Response: {response}"
+                f"Supabase upsert error for turn {turn_index}, chat {chat_id}: {response.error}"
             )
             return False
-
-    except Exception as e:
+        else:
+            logger.warning(
+                f"Supabase upsert for turn {turn_index}, chat {chat_id} returned no data but no error. Response: {response}"
+            )
+            return True
+    except Exception as e:  # Could be PostgrestAPIError if table doesn't exist
         logger.error(
             f"Error saving turn {turn_index} for {chat_id} ({role}) to Supabase: {e}",
             exc_info=True,
@@ -440,8 +372,11 @@ def clear_history_in_db(chat_id: int) -> bool:
         logger.info(
             f"Cleared history for {chat_id} in Supabase in {end_time:.4f} seconds. Response data: {response.data}"
         )
+        if hasattr(response, "error") and response.error:
+            logger.error(f"Supabase delete error for chat {chat_id}: {response.error}")
+            return False
         return True
-    except Exception as e:
+    except Exception as e:  # Could be PostgrestAPIError if table doesn't exist
         logger.error(
             f"Error clearing history for {chat_id} in Supabase: {e}", exc_info=True
         )
