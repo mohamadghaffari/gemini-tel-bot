@@ -1,17 +1,14 @@
-name: UV Integration
+name: MyPy Type Check
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
-  uv-example:
-    name: python
+  mypy:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -28,3 +25,6 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+
+      - name: Run MyPy
+        run: mypy src

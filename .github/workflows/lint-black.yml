@@ -1,15 +1,13 @@
-name: UV Integration
+name: Lint with Black
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-  uv-example:
-    name: python
+  lint:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,3 +26,6 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+
+      - name: Run Black
+        run: black . --check
