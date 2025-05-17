@@ -19,12 +19,20 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
-      - name: Set up Python using uv
-        run: uv python install
+      - name: Set up Python, Create Venv
+        run: |
+          uv python install
+          uv venv .ci-black-venv
+          echo "VIRTUAL_ENV_PATH=${{ github.workspace }}/.ci-black-venv" >> $GITHUB_ENV
 
-      - name: Install Black into system Python
-        run: uv pip install black --system
+      - name: Install Black into venv
+        run: |
+          source ${{ env.VIRTUAL_ENV_PATH }}/bin/activate
+          uv pip install black
 
       - name: Run Black Formatter Check
-        run: uv run black --check .
+        run: |
+          source ${{ env.VIRTUAL_ENV_PATH }}/bin/activate
+          uv run black --check .
