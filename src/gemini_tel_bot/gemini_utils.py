@@ -12,19 +12,19 @@ COMMON_MODELS_TO_SHOW = [
     "gemini-2.5-flash-preview-04-17",
     "gemini-2.5-pro-preview-05-06",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-preview-image-generation", # Image generation
+    "gemini-2.0-flash-preview-image-generation",  # Image generation
     "gemini-2.0-flash-lite",
     "gemini-1.5-flash",
-    "gemini-1.5-flash-latest", # Alias for gemini-1.5-flash
+    "gemini-1.5-flash-latest",  # Alias for gemini-1.5-flash
     "gemini-1.5-flash-8b",
     "gemini-1.5-pro",
-    "gemini-1.5-pro-latest",   # Alias for gemini-1.5-pro
+    "gemini-1.5-pro-latest",  # Alias for gemini-1.5-pro
     # "imagen-3.0-generate-002", # Image generation
-    "veo-2.0-generate-001",    # Video generation
+    "veo-2.0-generate-001",  # Video generation
     # "gemini-2.0-flash-live-001", # Primarily voice/video, but often supports text
     # Older, but still common chat models:
     "gemini-1.0-pro",
-    "gemini-pro", # Alias for gemini-1.0-pro
+    "gemini-pro",  # Alias for gemini-1.0-pro
 ]
 
 _cached_genai_clients: dict[str, genai.Client] = {}
@@ -70,9 +70,10 @@ def fetch_available_models_for_user(
     logger.info("Fetching available models...")
     start_time = time()
     try:
-        api_key_to_use = (
-            user_settings.get("gemini_api_key") or GEMINI_BOT_DEFAULT_API_KEY
-        )
+        api_key_to_use = user_settings.get("gemini_api_key")
+        if not api_key_to_use:
+            api_key_to_use = GEMINI_BOT_DEFAULT_API_KEY
+
         if not api_key_to_use:
             logger.warning("Cannot list models: No valid API key available for user.")
             return None
@@ -95,16 +96,18 @@ def fetch_available_models_for_user(
         generative_models_info: list[dict[str, Any]] = []
         logger.debug("Filtering raw models:")
         for m in models_list_raw:
-            model_name = getattr(m, "name", "") # Full name e.g., "models/gemini-1.5-pro-latest"
+            model_name = getattr(
+                m, "name", ""
+            )  # Full name e.g., "models/gemini-1.5-pro-latest"
             description = getattr(m, "description", "")
 
             # Extract the base model name (e.g., "gemini-1.5-pro-latest")
-            base_model_name = model_name.split('/')[-1]
+            base_model_name = model_name.split("/")[-1]
 
             # Specific exclusions based on keywords in the full model name
             is_embedding = "embedding" in model_name.lower()
-            is_aqa = "aqa" in model_name.lower() # Attributed Question Answering models
-            is_tuned = model_name.startswith("tunedModels/") # User-tuned models
+            is_aqa = "aqa" in model_name.lower()  # Attributed Question Answering models
+            is_tuned = model_name.startswith("tunedModels/")  # User-tuned models
 
             # Check if the base model name is in our curated list and not an excluded type
             if (
@@ -114,7 +117,9 @@ def fetch_available_models_for_user(
                 and not is_aqa
                 and not is_tuned
             ):
-                logger.debug(f"  -> Keeping model from curated list: {model_name} (base: {base_model_name})")
+                logger.debug(
+                    f"  -> Keeping model from curated list: {model_name} (base: {base_model_name})"
+                )
 
                 model_info = {"name": model_name}
                 model_info["description"] = description

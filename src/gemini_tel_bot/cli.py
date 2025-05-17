@@ -4,9 +4,6 @@ from gemini_tel_bot import handlers
 from gemini_tel_bot.config import BOT_MODE
 from gemini_tel_bot.bot import get_bot_instance
 
-# Logger setup should be done once, ideally when the module is imported
-# or within the main function if it's only for this script.
-# For now, let's keep it similar to run.py's structure.
 log_level = logging.DEBUG if BOT_MODE == "polling" else logging.INFO
 logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -19,7 +16,7 @@ if BOT_MODE == "polling":
     logger.debug("Debug logging enabled for polling mode in cli.py.")
 
 
-def main():
+def main() -> None:
     """Main function to run the bot in polling mode."""
     logger.info(f"Starting application via CLI in {BOT_MODE} mode.")
 

@@ -6,10 +6,10 @@ authors = [
     {name = "Mohammad GhaffariFar", email = "mohammaddevgermany@gmail.com"},
 ]
 readme = "README.md"
-requires-python = "^3.11"
+requires-python = ">=3.11"
 dependencies = [
-    "pytelegrambotapi",
-    "google-genai==1.14.0",
+    "pytelegrambotapi @ git+https://github.com/mohamadghaffari/pyTelegramBotAPI.git",
+    "google-genai",
     "supabase",
     "gunicorn",
     "google-api-core",
@@ -17,25 +17,34 @@ dependencies = [
     "google-adk",
 ]
 
-[tool.poetry]
-packages = [
-    { include = "gemini_tel_bot", from = "src" }
-]
-include = [
-    "Procfile"
-]
-
 [project.scripts]
 run-gemini-bot = "gemini_tel_bot.cli:main"
 
-[tool.poetry.group.dev.dependencies]
-python-dotenv = "*"
-black = "*"
+[project.optional-dependencies]
+dev = [
+    "python-dotenv",
+    "black",
+    "mypy",
+    "uv",
+    "pre-commit"
+]
 
 [tool.black]
 line-length = 88
 target-version = ["py311"]
 
+[tool.mypy]
+python_executable = "./.venv/bin/python3"
+python_version = "3.11"
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+check_untyped_defs = true
+warn_return_any = true
+show_error_codes = true
+ignore_missing_imports = true
+
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+backend-path = ["."]

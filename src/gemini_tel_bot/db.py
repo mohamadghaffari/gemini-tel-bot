@@ -1,10 +1,12 @@
 import json
+import asyncio
 import logging
 from time import time
-from google.genai import types
+from google.genai import types as genai_types
 from supabase import create_client, Client
 from .custom_types import UserSettings, HistoryTurn
-from supabase.lib.client_options import ClientOptions
+from typing import Any
+from supabase.lib.client_options import SyncClientOptions
 from .config import (
     DEFAULT_MODEL_NAME,
     SUPABASE_URL,
@@ -13,8 +15,69 @@ from .config import (
 )
 
 logger = logging.getLogger(__name__)
-
 _cached_supabase_client: Client | None = None
+
+CREATE_USER_SETTINGS_TABLE = """
+CREATE TABLE IF NOT EXISTS public.user_settings (
+  chat_id BIGINT PRIMARY KEY,
+  gemini_api_key TEXT NULL,
+  selected_model TEXT NOT NULL DEFAULT 'models/gemini-1.5-flash-latest',
+  message_count INTEGER NOT NULL DEFAULT 0
+);
+COMMENT ON TABLE public.user_settings IS 'Stores user-specific settings like API keys and selected models.';
+COMMENT ON COLUMN public.user_settings.chat_id IS 'Telegram Chat ID (Primary Key)';
+COMMENT ON COLUMN public.user_settings.gemini_api_key IS 'User-provided Gemini API Key (nullable)';
+COMMENT ON COLUMN public.user_settings.selected_model IS 'Gemini model selected by the user';
+COMMENT ON COLUMN public.user_settings.message_count IS 'Message counter for users on the default API key';
+"""
+
+CREATE_CHAT_HISTORY_TABLE = """
+CREATE TABLE IF NOT EXISTS public.chat_history (
+  chat_id BIGINT NOT NULL,
+  turn_index INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  parts_json JSONB NULL, -- Can be NULL if a turn has no content (e.g., initial state)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- Optional: Track creation time
+  PRIMARY KEY (chat_id, turn_index) -- Composite primary key
+);
+COMMENT ON TABLE public.chat_history IS 'Stores the conversation history turns.';
+COMMENT ON COLUMN public.chat_history.chat_id IS 'Telegram Chat ID';
+COMMENT ON COLUMN public.chat_history.turn_index IS 'Sequential index of the turn within a chat';
+COMMENT ON COLUMN public.chat_history.role IS 'Role of the turn owner (user or model)';
+COMMENT ON COLUMN public.chat_history.parts_json IS 'JSONB array storing the parts (text, image placeholders) of the turn';
+CREATE INDEX IF NOT EXISTS idx_chat_history_chat_id_turn_index ON public.chat_history(chat_id, turn_index);
+"""
+
+
+async def initialize_db(supabase_client: Client) -> None:
+    """Initializes the database with the required tables if they don't exist."""
+    try:
+        # Check if user_settings table exists
+        response = (
+            await supabase_client.table("user_settings")
+            .select("*", head=True)
+            .limit(0)
+            .execute()
+        )
+        if response.status_code == 404:  # Table does not exist
+            logger.info("Creating user_settings table...")
+            await supabase_client.from_("").execute(CREATE_USER_SETTINGS_TABLE)
+            logger.info("user_settings table created successfully.")
+
+        # Check if chat_history table exists
+        response = (
+            await supabase_client.table("chat_history")
+            .select("*", head=True)
+            .limit(0)
+            .execute()
+        )
+        if response.status_code == 404:  # Table does not exist
+            logger.info("Creating chat_history table...")
+            await supabase_client.from_("").execute(CREATE_CHAT_HISTORY_TABLE)
+            logger.info("chat_history table created successfully.")
+
+    except Exception as e:
+        logger.error(f"Error initializing database: {e}", exc_info=True)
 
 
 def get_supabase_client() -> Client | None:
@@ -33,12 +96,16 @@ def get_supabase_client() -> Client | None:
             _cached_supabase_client = create_client(
                 SUPABASE_URL,
                 SUPABASE_KEY,
-                options=ClientOptions(postgrest_client_timeout=10),
+                options=SyncClientOptions(postgrest_client_timeout=10),
             )
             init_time = time() - start_time
             logger.info(
                 f"Supabase client initialized successfully in {init_time:.4f} seconds."
             )
+
+            # Initialize the database
+            asyncio.run(initialize_db(_cached_supabase_client))
+
         except Exception as e:
             logger.critical(f"Failed to initialize Supabase client: {e}", exc_info=True)
             _cached_supabase_client = None
@@ -66,11 +133,14 @@ def get_user_settings_from_db(chat_id: int) -> UserSettings | None:
         logger.info(f"Fetched settings for {chat_id} in {end_time:.4f} seconds.")
 
         if response.data and len(response.data) > 0:
-            settings = response.data[0]
-            settings["message_count"] = settings.get("message_count", 0)
-            settings["selected_model"] = settings.get(
-                "selected_model", DEFAULT_MODEL_NAME
-            )
+            settings_data = response.data[0]
+            settings: UserSettings = {
+                "gemini_api_key": settings_data.get("gemini_api_key"),
+                "selected_model": settings_data.get(
+                    "selected_model", DEFAULT_MODEL_NAME
+                ),
+                "message_count": settings_data.get("message_count", 0),
+            }
             logger.debug(f"Fetched settings: {settings}")
             return settings
         else:
@@ -101,7 +171,7 @@ def save_user_settings_to_db(
 
     start_time = time()
     try:
-        data_to_save = {
+        data_to_save: dict[str, Any] = {
             "chat_id": chat_id,
             "gemini_api_key": api_key,
             "selected_model": model_name,
@@ -143,7 +213,7 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
     try:
         response = (
             supabase_client.table("chat_history")
-            .select("role, parts_json")
+            .select("role, parts_json, turn_index")
             .eq("chat_id", chat_id)
             .order("turn_index")
             .execute()
@@ -155,96 +225,104 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
 
         history: list[HistoryTurn] = []
         if response.data:
-            for row in response.data:
+            for row_idx, row in enumerate(response.data):
                 role = row.get("role")
                 parts_data_raw = row.get("parts_json")
-                parts_data: list | dict | None = None
+                turn_index_from_db = row.get("turn_index", f"unknown_row_{row_idx}")
+
+                parts_data_intermediate: list[dict[str, Any]] | None = None
 
                 if isinstance(parts_data_raw, str):
                     try:
-                        parts_data = json.loads(parts_data_raw)
-                        logger.debug(
-                            f"Manually loaded parts_json string for chat_id {chat_id}, turn {row.get('turn_index')}. Type was str."
-                        )
-                    except json.JSONDecodeError:
-                        logger.error(
-                            f"Failed to decode parts_json string for chat_id {chat_id}, turn {row.get('turn_index')}."
-                        )
-                        continue
-                elif isinstance(parts_data_raw, (list, dict)):
-                    parts_data = parts_data_raw
-                    logger.debug(
-                        f"parts_json for chat_id {chat_id}, turn {row.get('turn_index')} is already list/dict. Type: {type(parts_data_raw)}."
-                    )
-                elif parts_data_raw is None:
-                    logger.debug(
-                        f"parts_json for chat_id {chat_id}, turn {row.get('turn_index')} is None. Skipping row for history reconstruction."
-                    )
-                    continue
-                else:
-                    logger.warning(
-                        f"parts_json for chat_id {chat_id}, turn {row.get('turn_index')} is neither string, list, dict, nor None. Type: {type(parts_data_raw)}. Skipping row."
-                    )
-                    continue
-
-                # Proceed with reconstruction only if parts_data is now a list
-                if role is not None and isinstance(parts_data, list):
-                    parts_list: list[types.Part] = []
-                    for p in parts_data:
-                        if isinstance(p, dict):
-                            part_type = p.get("type")
-                            if part_type == "text" and p.get("text") is not None:
-                                parts_list.append(types.Part(text=p["text"]))
-                            elif part_type == "image":
-                                image_text = f"[Image: {p.get('mime_type', 'image')}]"
-                                caption = p.get("caption")
-                                if caption:
-                                    image_text += f" (Caption: {caption})"
-                                parts_list.append(types.Part(text=image_text))
-                            elif part_type == "function_call" and p.get(
-                                "function_call"
-                            ):
-                                func_call_data = p["function_call"]
-                                func_name = func_call_data.get("name", "unknown")
-                                parts_list.append(
-                                    types.Part(text=f"[Function Call: {func_name}]")
-                                )
-                            elif part_type == "function_response" and p.get(
-                                "function_response"
-                            ):
-                                func_resp_data = p["function_response"]
-                                func_name = func_resp_data.get("name", "unknown")
-                                parts_list.append(
-                                    types.Part(text=f"[Function Response: {func_name}]")
-                                )
-
-                    if parts_list:
-                        if role in ["user", "model"]:
-                            history.append(types.Content(role=role, parts=parts_list))
-                            logger.debug(
-                                f"Reconstructed turn for {chat_id}, role {role}, {len(parts_list)} parts."
-                            )
+                        loaded_json = json.loads(parts_data_raw)
+                        if isinstance(loaded_json, list):
+                            parts_data_intermediate = loaded_json
                         else:
                             logger.warning(
-                                f"Skipping history row for {chat_id} with unsupported role '{role}' during reconstruction."
+                                f"Decoded parts_json for chat {chat_id}, turn {turn_index_from_db} is not a list: {type(loaded_json)}"
                             )
-                    else:
-                        logger.debug(
-                            f"Turn for {chat_id}, role {role}, turn_index {row.get('turn_index')} had empty parts_json or no savable parts."
+                    except json.JSONDecodeError:
+                        logger.error(
+                            f"Failed to decode parts_json string for chat {chat_id}, turn {turn_index_from_db}."
                         )
-
-                elif isinstance(parts_data, dict):
-                    logger.warning(
-                        f"parts_json for chat_id {chat_id}, turn {row.get('turn_index')} is a dictionary, not a list. Skipping row for history reconstruction."
+                        continue
+                elif isinstance(parts_data_raw, list):
+                    parts_data_intermediate = parts_data_raw
+                elif parts_data_raw is None:
+                    logger.debug(
+                        f"parts_json for chat {chat_id}, turn {turn_index_from_db} is None. Assuming empty parts."
                     )
+                    parts_data_intermediate = []
                 else:
-                    logger.error(
-                        f"Unexpected state after parts_json processing for chat_id {chat_id}, turn {row.get('turn_index')}. parts_data is {type(parts_data)}."
+                    logger.warning(
+                        f"parts_json for chat {chat_id}, turn {turn_index_from_db} is of unexpected type: {type(parts_data_raw)}. Skipping."
+                    )
+                    continue
+
+                if role is not None and parts_data_intermediate is not None:
+                    reconstructed_parts: list[genai_types.Part] = []
+                    for p_dict in parts_data_intermediate:
+                        if not isinstance(p_dict, dict):
+                            logger.warning(
+                                f"Skipping non-dict item in parts_data for {chat_id}, turn {turn_index_from_db}: {p_dict}"
+                            )
+                            continue
+
+                        part_type = p_dict.get("type")
+                        if part_type == "text" and "text" in p_dict:
+                            reconstructed_parts.append(
+                                genai_types.Part(text=str(p_dict["text"]))
+                            )
+                        elif part_type == "image":
+                            image_text = f"[Image: {p_dict.get('mime_type', 'image')}]"
+                            caption = p_dict.get("caption")
+                            if caption:
+                                image_text += f" (Caption: {caption})"
+                            reconstructed_parts.append(
+                                genai_types.Part(text=image_text)
+                            )
+                        elif part_type == "function_call" and "function_call" in p_dict:
+                            fc_data = p_dict["function_call"]
+                            if isinstance(fc_data, dict):
+                                reconstructed_parts.append(
+                                    genai_types.Part(
+                                        function_call=genai_types.FunctionCall(
+                                            name=str(fc_data.get("name")),
+                                            args=fc_data.get("args"),
+                                        )
+                                    )
+                                )
+                        elif (
+                            part_type == "function_response"
+                            and "function_response" in p_dict
+                        ):
+                            fr_data = p_dict["function_response"]
+                            if isinstance(fr_data, dict):
+                                reconstructed_parts.append(
+                                    genai_types.Part(
+                                        function_response=genai_types.FunctionResponse(
+                                            name=str(fr_data.get("name")),
+                                            response=fr_data.get("response"),
+                                        )
+                                    )
+                                )
+
+                    if role in ["user", "model"]:
+                        history.append(
+                            genai_types.Content(role=role, parts=reconstructed_parts)
+                        )
+                    else:
+                        logger.warning(
+                            f"Skipping history row for {chat_id}, turn {turn_index_from_db} with unsupported role '{role}'."
+                        )
+                else:
+                    logger.debug(
+                        f"Skipping turn for {chat_id}, turn_index {turn_index_from_db} due to missing role or parts_data."
                     )
 
         if MAX_HISTORY_LENGTH_TURNS > 0 and len(history) > MAX_HISTORY_LENGTH_TURNS:
-            logger.warning(
-                f"History length {len(history)} exceeds MAX_HISTORY_LENGTH_TURNS {MAX_HISTORY_LENGTH_TURNS} for {chat_id}. Truncating history from {len(history)} to {MAX_HISTORY_LENGTH_TURNS} turns."
+            logger.info(
+                f"History length {len(history)} exceeds MAX_HISTORY_LENGTH_TURNS {MAX_HISTORY_LENGTH_TURNS} for {chat_id}. Truncating."
             )
             history = history[-MAX_HISTORY_LENGTH_TURNS:]
             logger.debug(
@@ -261,9 +339,12 @@ def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
 
 
 def save_turn_to_db(
-    chat_id: int, turn_index: int, role: str, parts: list[types.Part]
+    chat_id: int,
+    turn_index: int,
+    role: str | None,
+    parts: list[genai_types.Part] | None,
 ) -> bool:
-    """Saves a user or model turn with a specific turn_index to chat_history using Supabase (UPSERTs)."""
+    """Saves a user or model turn to chat_history using Supabase (UPSERTs)."""
     logger.info(f"Saving turn {turn_index} for {chat_id} ({role}) to Supabase...")
     supabase_client = get_supabase_client()
     if not supabase_client:
@@ -271,58 +352,49 @@ def save_turn_to_db(
         return False
 
     start_time = time()
-    try:
-        parts_data = []
-        for part in parts:
-            part_dict = {}
-            if hasattr(part, "text") and part.text is not None:
-                part_dict["text"] = part.text
-                part_dict["type"] = "text"
-            elif hasattr(part, "inline_data") and part.inline_data:
-                part_dict["type"] = "image"
-                part_dict["mime_type"] = (
-                    part.inline_data.mime_type
-                    if hasattr(part.inline_data, "mime_type")
-                    else "unknown"
-                )
-                part_dict["size"] = (
-                    len(part.inline_data.data)
-                    if hasattr(part.inline_data, "data")
-                    and part.inline_data.data is not None
-                    else 0
-                )
-                if hasattr(part, "caption") and part.caption is not None:
-                    part_dict["caption"] = part.caption
+    parts_data_to_save: list[dict[str, Any]] = []
 
-            elif (
-                hasattr(part, "function_response")
-                and part.function_response is not None
-            ):
+    if parts is not None:
+        for part_object in parts:
+            part_dict: dict[str, Any] = {}
+            if part_object.text is not None:
+                part_dict["text"] = part_object.text
+                part_dict["type"] = "text"
+            elif part_object.inline_data is not None:
+                part_dict["type"] = "image"
+                part_dict["mime_type"] = part_object.inline_data.mime_type
+            elif part_object.function_response is not None:
                 part_dict["type"] = "function_response"
                 part_dict["function_response"] = {
-                    "name": getattr(part.function_response, "name", None),
-                    "content": getattr(part.function_response, "content", None),
+                    "name": part_object.function_response.name,
+                    "response": part_object.function_response.response,
                 }
-            elif hasattr(part, "function_call") and part.function_call is not None:
+            elif part_object.function_call is not None:
                 part_dict["type"] = "function_call"
                 part_dict["function_call"] = {
-                    "name": getattr(part.function_call, "name", None),
-                    "args": getattr(part.function_call, "args", None),
+                    "name": part_object.function_call.name,
+                    "args": part_object.function_call.args,
+                }
+            elif part_object.file_data is not None:
+                part_dict["type"] = "file_data"
+                part_dict["file_data"] = {
+                    "mime_type": part_object.file_data.mime_type,
+                    "file_uri": part_object.file_data.file_uri,
                 }
 
             if part_dict:
-                parts_data.append(part_dict)
+                parts_data_to_save.append(part_dict)
+    else:
+        logger.warning(
+            f"Turn {turn_index} for {chat_id} ({role}) has None for parts. Saving with empty parts_json."
+        )
 
-        if not parts_data:
-            logger.warning(
-                f"Turn {turn_index} for {chat_id} ({role}) has no savable parts. Saving with empty parts_json."
-            )
-
+    try:
         data_to_save = {
             "chat_id": chat_id,
             "turn_index": turn_index,
             "role": role,
-            "parts_json": parts_data,
+            "parts_json": json.dumps(parts_data_to_save),
         }
 
         response = supabase_client.table("chat_history").upsert(data_to_save).execute()

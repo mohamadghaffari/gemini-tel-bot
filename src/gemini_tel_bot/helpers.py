@@ -1,6 +1,7 @@
 import telebot
 import asyncio
 import logging
+from typing import Any
 from google import genai
 import telegramify_markdown
 from .custom_types import UserSettings
@@ -31,8 +32,11 @@ get_runtime_config().markdown_symbol.link = "🔗"
 
 
 def split_and_send_message(
-    message: telebot_types.Message, text: str, bot_instance: telebot.TeleBot, **kwargs
-):
+    message: telebot_types.Message,
+    text: str,
+    bot_instance: telebot.TeleBot,
+    **kwargs: Any,
+) -> None:
 
     interpreter_chain = InterpreterChain(
         [
@@ -185,7 +189,7 @@ def check_message_limit_and_increment(
                             warning_message = f"You have 1 message remaining with the default API key.\n\nPlease use `/set_api_key` to provide your own Gemini API key to send more messages after this one."  # Slightly rephrased for clarity
                             try:
                                 bot_instance.send_message(
-                                    message, warning_message, parse_mode="Markdown"
+                                    chat_id, warning_message, parse_mode="Markdown"
                                 )
                                 logger.info(
                                     f"Sent limit warning: 1 message remaining for {chat_id}."
@@ -198,7 +202,7 @@ def check_message_limit_and_increment(
                             final_warning_message = f"This is your {DEFAULT_KEY_MESSAGE_LIMIT}th and final message using the default API key.\n\nTo send more messages, please use `/set_api_key` to provide your own Gemini API key."
                             try:
                                 bot_instance.send_message(
-                                    message,
+                                    chat_id,
                                     final_warning_message,
                                     parse_mode="Markdown",
                                 )

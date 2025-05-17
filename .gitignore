@@ -2,3 +2,4 @@
 .venv
 local.py
 __pycache__
+src/gemini_tel_bot.egg-info

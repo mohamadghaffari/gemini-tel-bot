@@ -27,14 +27,16 @@ logger = logging.getLogger(__name__)
 CALLBACK_SET_MODEL_PREFIX = "set_model:"
 
 
-def register_handlers(bot_instance: telebot.TeleBot):
+def register_handlers(bot_instance: telebot.TeleBot) -> None:
     """
     Registers all Telegram command, message, and callback handlers
     with the provided bot instance.
     """
     logger.info("Registering handlers...")
 
-    def send_welcome(message: telebot_types.Message, bot_for_reply: telebot.TeleBot):
+    def send_welcome(
+        message: telebot_types.Message, bot_for_reply: telebot.TeleBot
+    ) -> None:
         """Sends the welcome/help message."""
         chat_id = message.chat.id
         logger.info(f"Handling /start or /help for {chat_id}")
@@ -65,7 +67,9 @@ def register_handlers(bot_instance: telebot.TeleBot):
                 f"Failed to send welcome message to {chat_id}: {e}", exc_info=True
             )
 
-    def handle_reset(message: telebot_types.Message, bot_for_reply: telebot.TeleBot):
+    def handle_reset(
+        message: telebot_types.Message, bot_for_reply: telebot.TeleBot
+    ) -> None:
         """Handles the /reset command to clear chat history."""
         chat_id = message.chat.id
         logger.info(f"User {chat_id} called /reset")
@@ -102,7 +106,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_set_api_key_command(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles the /set_api_key command, prompting user for their key."""
         chat_id = message.chat.id
         logger.info(f"User {chat_id} called /set_api_key")
@@ -136,7 +140,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_cancel_command(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles the /cancel command to abort the API key setting process."""
         chat_id = message.chat.id
         logger.info(f"User {chat_id} called /cancel")
@@ -156,7 +160,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_clear_api_key(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles the /clear_api_key command to revert to using the bot's default key."""
         chat_id = message.chat.id
         logger.info(f"User {chat_id} called /clear_api_key")
@@ -222,7 +226,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_list_models(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles /list_models command to list available generative models."""
         chat_id = message.chat.id
         logger.info(f"User {chat_id} called /list_models")
@@ -302,7 +306,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_select_model_command(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles /select_model command, presenting models as inline buttons."""
         chat_id = message.chat.id
         logger.info(f"User {chat_id} called /select_model")
@@ -400,28 +404,68 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_model_selection_callback(
         call: telebot_types.CallbackQuery, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles the callback when a user selects a model from the inline keyboard."""
         chat_id = call.message.chat.id
         message_id = call.message.message_id
-        try:
-            model_name = call.data[len(CALLBACK_SET_MODEL_PREFIX) :]
-        except IndexError:
-            logger.error(f"Invalid callback data received: {call.data}")
+
+        if not call.data or not isinstance(call.data, str):
+            logger.error(
+                f"Callback data is None or not a string for chat_id {chat_id}, message_id {message_id}. Data: {call.data}"
+            )
             try:
                 bot_for_reply.answer_callback_query(
                     call.id, "Error: Invalid selection data."
                 )
             except Exception:
-                pass  # Ignore if answering fails
+                pass
             return
 
-        logger.info(f"User {chat_id} selected model via button: {model_name}")
+        callback_data_str: str = call.data
 
-        # Answer the callback query quickly
+        model_name_from_callback: str | None = None
+
+        if callback_data_str.startswith(CALLBACK_SET_MODEL_PREFIX):
+            try:
+                model_name_from_callback = callback_data_str[
+                    len(CALLBACK_SET_MODEL_PREFIX) :
+                ]
+            except IndexError:
+                logger.error(
+                    f"Unexpected IndexError slicing callback data '{callback_data_str}' for chat {chat_id}"
+                )
+                try:
+                    bot_for_reply.answer_callback_query(
+                        call.id, "Error: Malformed selection data."
+                    )
+                except Exception:
+                    pass
+                return
+        else:
+            logger.error(
+                f"Callback data '{callback_data_str}' does not start with prefix '{CALLBACK_SET_MODEL_PREFIX}' for chat {chat_id}."
+            )
+            try:
+                bot_for_reply.answer_callback_query(
+                    call.id, "Error: Unrecognized selection format."
+                )
+            except Exception:
+                pass
+            return
+
+        if model_name_from_callback is None:
+            logger.error(
+                f"Failed to extract model name from callback data for chat {chat_id}"
+            )
+            return
+
+        logger.info(
+            f"User {chat_id} selected model via button: {model_name_from_callback}"
+        )
+
         try:
             bot_for_reply.answer_callback_query(
-                call.id, f"Setting model to {model_name}..."
+                call.id, f"Setting model to {model_name_from_callback}..."
             )
         except Exception as e:
             logger.warning(
@@ -431,9 +475,8 @@ def register_handlers(bot_instance: telebot.TeleBot):
         user_settings = get_user_settings_from_db(chat_id)
         if user_settings is None:
             try:
-                # Edit the original message to show the error
                 bot_for_reply.edit_message_text(
-                    "Error fetching your settings\\. Cannot set model\\.",
+                    "Error fetching your settings. Cannot set model.",
                     chat_id=chat_id,
                     message_id=message_id,
                     reply_markup=None,
@@ -441,32 +484,33 @@ def register_handlers(bot_instance: telebot.TeleBot):
                 )
             except Exception as e:
                 logger.error(
-                    f"Failed to edit message for settings fetch error during callback for {chat_id}: {e}"
+                    f"Failed to edit message for settings fetch error (callback) for {chat_id}: {e}"
                 )
             return
 
-        # Check if model is already selected
         current_model = user_settings.get("selected_model", DEFAULT_MODEL_NAME)
-        if current_model == model_name:
-            response_text = f"Model is already set to `{model_name}`\\."
+        if current_model == model_name_from_callback:
+            response_text = f"Model is already set to `{model_name_from_callback}`\."
             logger.info(f"User {chat_id} model selection: model already set.")
         else:
             current_api_key = user_settings.get("gemini_api_key")
             if save_user_settings_to_db(
-                chat_id, api_key=current_api_key, model_name=model_name, message_count=0
+                chat_id,
+                api_key=current_api_key,
+                model_name=model_name_from_callback,
+                message_count=0,  # Reset count
             ):
-                clear_history_in_db(chat_id)
-                response_text = f"Model set to `{model_name}` successfully\\! Your chat history has been reset\\."
+                clear_history_in_db(chat_id)  # Clear history on model change
+                response_text = f"Model set to `{model_name_from_callback}` successfully\! Your chat history has been reset\."
                 logger.info(
-                    f"User {chat_id} set model to {model_name} completed via callback."
+                    f"User {chat_id} set model to {model_name_from_callback} completed via callback."
                 )
             else:
-                response_text = "Failed to set the model in the database\\."
+                response_text = "Failed to set the model in the database\."
                 logger.error(
                     f"Callback model selection failed for {chat_id}: Failed to save settings."
                 )
 
-        # Edit the original message to show the result and remove the keyboard
         try:
             bot_for_reply.edit_message_text(
                 response_text,
@@ -476,7 +520,6 @@ def register_handlers(bot_instance: telebot.TeleBot):
                 parse_mode="MarkdownV2",
             )
         except Exception as e:
-            # Log error, but user already got answer_callback_query hopefully
             logger.error(
                 f"Failed to edit message after model selection for {chat_id}: {e}",
                 exc_info=True,
@@ -484,19 +527,24 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_current_settings(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
-        """Handles /current_settings command to display user's current configuration."""
+    ) -> None:
         chat_id = message.chat.id
         logger.info(f"User {chat_id} called /current_settings")
 
         user_settings = check_db_and_settings(chat_id, message, bot_for_reply)
         if user_settings is None:
-            return  # Helper already sent message
+            return
 
         api_key_status = "Using bot's default API key"
-        custom_api_key = user_settings.get("gemini_api_key")
-        if custom_api_key:
-            key_masked = f"{custom_api_key[:4]}...{custom_api_key[-4:]}"
+        # Explicitly get the custom_api_key
+        custom_api_key: str | None = user_settings.get("gemini_api_key")
+        if custom_api_key is not None:
+            if len(custom_api_key) >= 8:
+                key_masked = f"{custom_api_key[:4]}...{custom_api_key[-4:]}"
+            elif len(custom_api_key) > 0:
+                key_masked = f"{custom_api_key[:1]}... (too short to fully mask)"
+            else:
+                key_masked = "(empty key set)"
             api_key_status = f"Using your custom API key: `{key_masked}`"
         elif not GEMINI_BOT_DEFAULT_API_KEY:
             api_key_status = "No API key available. Bot's default is missing, and you haven't set your own.\nPlease use `/set_api_key` to provide your key."
@@ -510,18 +558,16 @@ def register_handlers(bot_instance: telebot.TeleBot):
             f"Model: `{current_model}`\n"
         )
 
-        # Add message count info only if using default key and limit is enabled
-        if (
-            user_settings.get("gemini_api_key") is None
-            and DEFAULT_KEY_MESSAGE_LIMIT > 0
-        ):
-            settings_text += f"Messages Used \(Default Key\): {current_message_count} / {DEFAULT_KEY_MESSAGE_LIMIT}\n"
+        if custom_api_key is None and DEFAULT_KEY_MESSAGE_LIMIT > 0:
+            settings_text += f"Messages Used (Default Key): {current_message_count} / {DEFAULT_KEY_MESSAGE_LIMIT}\n"
             if current_message_count >= DEFAULT_KEY_MESSAGE_LIMIT:
-                settings_text += "  \(Limit reached\. Use `/set_api_key` for unlimited messages\.\)\n"
+                settings_text += (
+                    "  (Limit reached. Use `/set_api_key` for unlimited messages.)\n"
+                )
 
         try:
             bot_for_reply.reply_to(message, settings_text, parse_mode="MarkdownV2")
-            logger.info(f"User {chat_id} /current_settings completed\.")
+            logger.info(f"User {chat_id} /current_settings completed.")
         except Exception as e:
             logger.error(
                 f"Failed to send current settings to {chat_id}: {e}", exc_info=True
@@ -529,7 +575,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_unknown_command(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles commands that are not recognized."""
         chat_id = message.chat.id
         logger.warning(f"User {chat_id} sent unknown command: {message.text}")
@@ -544,7 +590,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
 
     def handle_unsupported_content(
         message: telebot_types.Message, bot_for_reply: telebot.TeleBot
-    ):
+    ) -> None:
         """Handles content types not explicitly supported."""
         chat_id = message.chat.id
         logger.warning(
@@ -559,63 +605,61 @@ def register_handlers(bot_instance: telebot.TeleBot):
                 f"Failed to send unsupported content message to {chat_id}: {e}"
             )
 
-    # --- Register Handlers using Decorators on Wrappers ---
     @bot_instance.message_handler(commands=["start", "help"])
-    def welcome_wrapper(message):
+    def welcome_wrapper(message: telebot_types.Message) -> None:
         send_welcome(message, bot_instance)
 
     @bot_instance.message_handler(commands=["reset"])
-    def reset_wrapper(message):
+    def reset_wrapper(message: telebot_types.Message) -> None:
         handle_reset(message, bot_instance)
 
     @bot_instance.message_handler(commands=["set_api_key"])
-    def set_api_key_wrapper(message):
+    def set_api_key_wrapper(message: telebot_types.Message) -> None:
         handle_set_api_key_command(message, bot_instance)
 
     @bot_instance.message_handler(commands=["cancel"])
-    def cancel_wrapper(message):
+    def cancel_wrapper(message: telebot_types.Message) -> None:
         handle_cancel_command(message, bot_instance)
 
     @bot_instance.message_handler(commands=["clear_api_key"])
-    def clear_api_key_wrapper(message):
+    def clear_api_key_wrapper(message: telebot_types.Message) -> None:
         handle_clear_api_key(message, bot_instance)
 
     @bot_instance.message_handler(commands=["list_models"])
-    def list_models_wrapper(message):
+    def list_models_wrapper(message: telebot_types.Message) -> None:
         handle_list_models(message, bot_instance)
 
     @bot_instance.message_handler(commands=["select_model"])
-    def select_model_wrapper(message):
+    def select_model_wrapper(message: telebot_types.Message) -> None:
         handle_select_model_command(message, bot_instance)
 
     @bot_instance.message_handler(commands=["current_settings"])
-    def current_settings_wrapper(message):
+    def current_settings_wrapper(message: telebot_types.Message) -> None:
         handle_current_settings(message, bot_instance)
 
-    # --- Text & Photo Message Handlers ---
     @bot_instance.message_handler(
         func=lambda message: message.text and not message.text.startswith("/"),
         content_types=["text"],
     )
-    def text_message_wrapper(message):
+    def text_message_wrapper(message: telebot_types.Message) -> None:
         process_user_message(message, process_text_message, bot_instance)
 
     @bot_instance.message_handler(content_types=["photo"])
-    def photo_message_wrapper(message):
+    def photo_message_wrapper(message: telebot_types.Message) -> None:
         process_user_message(message, process_photo_message, bot_instance)
 
     # --- Callback Query Handler ---
     @bot_instance.callback_query_handler(
         func=lambda call: call.data.startswith(CALLBACK_SET_MODEL_PREFIX)
     )
-    def model_selection_wrapper(call):
+    def model_selection_wrapper(call: telebot_types.CallbackQuery) -> None:
         handle_model_selection_callback(call, bot_instance)
 
     # --- Catch-all Handler ---
     @bot_instance.message_handler(
         func=lambda message: message.text and message.text.startswith("/")
     )
-    def unknown_command_wrapper(message):
+    def unknown_command_wrapper(message: telebot_types.Message) -> None:
         handle_unknown_command(message, bot_instance)
 
     UNSUPPORTED_CONTENT_TYPES = [
@@ -651,7 +695,7 @@ def register_handlers(bot_instance: telebot.TeleBot):
     @bot_instance.message_handler(
         func=lambda m: True, content_types=UNSUPPORTED_CONTENT_TYPES
     )
-    def unsupported_content_wrapper(message):
+    def unsupported_content_wrapper(message: telebot_types.Message) -> None:
         handle_unsupported_content(message, bot_instance)
 
     logger.info("All handlers registered.")

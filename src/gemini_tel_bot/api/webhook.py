@@ -1,6 +1,7 @@
 import json
 import logging
-import telebot
+import telebot  # type: ignore[no-any-unimported]
+from typing import Callable, List
 from telebot import types as telebot_types
 from .. import handlers
 from ..bot import get_bot_instance
@@ -12,7 +13,7 @@ _global_bot_instance: telebot.TeleBot | None = None
 _initialization_error: bool = False
 
 
-def initialize_bot():
+def initialize_bot() -> telebot.TeleBot | None:
     """Creates the bot instance and registers handlers once per worker."""
     global _global_bot_instance, _initialization_error
     if _global_bot_instance is not None or _initialization_error:
@@ -45,7 +46,9 @@ def initialize_bot():
 _global_bot_instance = initialize_bot()
 
 
-def app(environ: dict, start_response):
+def app(
+    environ: dict, start_response: Callable[[str, List[tuple[str, str]]], None]
+) -> List[bytes]:
     """
     WSGI application entry point for Telegram webhook.
     Handles the HTTP request/response cycle and passes the body to Telebot.
