@@ -26,5 +26,8 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Activate uv environment
+        run: source ./.venv/bin/activate
+
       - name: Run MyPy
         run: mypy src
