@@ -10,7 +10,6 @@
 <h2 align="center"> Best Gemini-powered telegram Bot 😍 </h2>
 
 [![mypy](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/mypy.yml/badge.svg)](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/mypy.yml)
-[![UV Integration](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/uv-integration.yml/badge.svg)](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/uv-integration.yml)
 [![lint](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/lint-black.yml/badge.svg)](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/lint-black.yml)
 
 A versatile Telegram bot built with Python that allows users to chat with Google Gemini models. It supports multi-modal input (text and photos), maintains conversation history, offers flexible deployment (Webhook or Polling), and provides user-specific configuration options via commands and buttons. The bot leverages `MarkdownV2` for rich text formatting, including code blocks, file sending, and Mermaid chart rendering.

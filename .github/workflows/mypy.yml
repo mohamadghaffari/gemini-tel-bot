@@ -7,27 +7,25 @@ on:
     branches: [ "main" ]
 
 jobs:
-  mypy:
+  mypy-check:
+    name: MyPy Type Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Set up Python
-        run: uv python install
-
-      - name: Install the project
-        run: uv sync --locked --all-extras --dev
-
-      - name: Enable caching
+      - name: Install uv and Set up Cache
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
-      - name: Activate uv environment
-        run: source ./.venv/bin/activate
+      - name: Set up Python using uv
+        run: uv python install
+
+      - name: Install dependencies from uv.lock
+        run: |
+          uv sync --locked --all-extras --dev
 
       - name: Run MyPy
-        run: mypy src
+        run: uv run mypy src
