@@ -70,6 +70,16 @@ module = "telegramify_markdown.*"
 ignore_missing_imports = true
 disallow_any_unimported = false
 
+[[tool.mypy.overrides]]
+module = "telebot.*"
+ignore_missing_imports = true
+disallow_any_unimported = false
+
+[[tool.mypy.overrides]]
+module = "google.adk.*"
+ignore_missing_imports = true
+disallow_any_unimported = false
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
