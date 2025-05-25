@@ -66,17 +66,14 @@ show_error_codes = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "telegramify_markdown.*"
-ignore_missing_imports = true
-disallow_any_unimported = false
-
-[[tool.mypy.overrides]]
-module = "telebot.*"
-ignore_missing_imports = true
-disallow_any_unimported = false
-
-[[tool.mypy.overrides]]
-module = "google.adk.*"
+module = [
+    "telegramify_markdown.*",
+    "telebot.*",
+    "google.adk.*",
+    "google.adk.runners",
+    "google.adk.models.*",
+    "google.adk.sessions"
+]
 ignore_missing_imports = true
 disallow_any_unimported = false
 

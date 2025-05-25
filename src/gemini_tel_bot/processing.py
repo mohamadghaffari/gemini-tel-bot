@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 URL_REGEX = r"(?:(?:https?|ftp):\/\/|www\.)(?:\([-A-Z0-9+&@#\/%?=~_|$!:,.;]*\)|[-A-Z0-9+&@#\/%?=~_|$!:,.;])*(?:\([-A-Z0-9+&@#\/%?=~_|$!:,.;]*\)|[A-Z0-9+&@#\/%?=~_|$])"
 
 # --- ADK Session Management ---
-_adk_session_service: InMemorySessionService = InMemorySessionService()
+_adk_session_service: InMemorySessionService = InMemorySessionService()  # type: ignore[no-any-unimported]
 
 # Module-level client for google.genai.
 _default_genai_client_instance: genai.Client | None = None
@@ -391,7 +391,7 @@ async def _handle_ai_interaction_error(
     await split_and_send_message(message, error_message_to_send, bot_instance)
 
 
-async def _process_adk_events_and_get_response(
+async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimported]
     runner: Runner,
     user_id_for_agent: str,
     session_id_for_agent: str,

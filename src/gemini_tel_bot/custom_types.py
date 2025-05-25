@@ -28,7 +28,7 @@ class AIInteractionContext(TypedDict):
     model_for_agent: str
     urls_found: list[str]
     active_genai_client: genai_client.Client
-    runner: Runner
+    runner: Runner  # type: ignore[no-any-unimported]
 
 
 class UserSettingsTableRowUpsert(TypedDict):

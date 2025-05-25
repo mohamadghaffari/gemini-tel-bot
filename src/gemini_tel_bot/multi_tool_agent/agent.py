@@ -147,7 +147,7 @@ class TelegramBotAgent:
                 f"new API key source='{'user-provided' if new_api_key else ('bot-default' if GOOGLE_API_KEY else 'None')}'."
             )
 
-            new_gemini_llm_instance_for_adk: Gemini
+            new_gemini_llm_instance_for_adk: Gemini  # type: ignore[no-any-unimported]
             if not new_effective_api_key:
                 logger.warning(
                     f"No API key explicitly available for updating agent instance {self.root_agent.name}. "
