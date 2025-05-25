@@ -1,12 +1,14 @@
-import time
 import logging
-import telebot
+import time
+
+from telebot.async_telebot import AsyncTeleBot
+
 from .config import BOT_API_KEY
 
 logger = logging.getLogger(__name__)
 
 
-def get_bot_instance() -> telebot.TeleBot | None:
+def get_bot_instance() -> AsyncTeleBot | None:
     """Initializes and returns the Telegram Bot instance."""
     logger.info("Initializing Telegram bot instance...")
     start_time = time.time()
@@ -16,7 +18,7 @@ def get_bot_instance() -> telebot.TeleBot | None:
         return None
 
     try:
-        bot_object = telebot.TeleBot(BOT_API_KEY)
+        bot_object = AsyncTeleBot(BOT_API_KEY)
         init_time = time.time() - start_time
         logger.info(f"Telegram bot instance created in {init_time:.4f} seconds.")
 

@@ -1,44 +1,79 @@
 <p align="center">
   <a href="https://github.com/mohamadghaffari/gemini-tel-bot">
-    <img src="images/logo.jpeg" width="150" alt="Bot Logo">
+    <img src="https://raw.githubusercontent.com/mohamadghaffari/gemini-tel-bot/main/images/logo.jpeg" width="150" alt="Bot Logo">
   </a>
 </p>
 
 <h1 align="center">
 🤖 Gemini Telegram Bot
 </h1>
-<h2 align="center"> Best Gemini-powered telegram Bot 😍 </h2>
+<h2 align="center"> An Agentic Telegram Bot powered by Google Gemini & ADK 🚀 </h2>
 
 [![mypy](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/mypy.yml/badge.svg)](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/mypy.yml)
 [![lint](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/lint-black.yml/badge.svg)](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/lint-black.yml)
 
-A versatile Telegram bot built with Python that allows users to chat with Google Gemini models. It supports multi-modal input (text and photos), maintains conversation history, offers flexible deployment (Webhook or Polling), and provides user-specific configuration options via commands and buttons. The bot leverages `MarkdownV2` for rich text formatting, including code blocks, file sending, and Mermaid chart rendering.
+An advanced, **agentic Telegram bot** built with Python and the **Google Agent Development Kit (ADK)**. It leverages the latest **Google Gemini models** to provide a rich, interactive, and extensible chat experience. The bot supports multi-modal interactions (text, photos, URLs), advanced tool usage (including URL context retrieval, native Text-to-Speech, and image generation with Imagen), maintains conversation history, and offers flexible deployment options. Users can easily add new agents and tools to customize the bot for their specific use cases.
 
-## ✨ Features
+## ✨ Core Features & Capabilities
 
-*   **🤖 AI Chat:** Interact with Google Gemini models (`gemini-1.5-flash-latest` by default or user-selected).
-*   **📝📸 Multimodal Input:** Send text messages or photos with captions to the bot.
-*   **💾 Conversation History:** The bot remembers previous turns (text and photo captions/placeholders) to maintain context in the conversation (history length is limited by model context window and a configurable limit).
-*   **🔑 User API Keys:** Users can set and use their own Google Gemini API key using `/set_api_key` for potentially higher limits or access to models available to their key.
-*   **🌍 Bot's Default Key:** A default API key can be configured for users who don't provide their own (can be limited to a certain number of messages via `DEFAULT_KEY_MESSAGE_LIMIT`).
-*   **⚙️ Model Selection:** Users can easily list available Gemini models (`/list_models`) and select one using the `/select_model` command with inline keyboard buttons.
-*   **📊 Current Settings:** View active API key status, chosen model, and default key message count using `/current_settings`.
-*   **↩️ Chat Reset:** Clear conversation history using `/reset`.
-*   **🚀 Flexible Deployment:** Supports both **Webhook** mode (recommended for production, requires a publicly accessible server) and **Long Polling** mode (easier for local development and testing).
-*   **💅 Rich Formatting (Thanks to [telegramify-markdown](https://github.com/sudoskys/telegramify-markdown/)):**
+*   **🤖 Agentic AI Core (Google ADK):** Built with the Google Agent Development Kit, enabling sophisticated tool use, function calling, and an extensible agent-based architecture. This allows for advanced capabilities like web content retrieval, native speech generation, and image creation.
+*   **🌐 Advanced Gemini Model Integration:** Interact with the latest Google Gemini models (e.g., `gemini-2.5-pro-preview-05-06`, `gemini-1.5-pro-latest`, `gemini-1.5-flash-latest`, and other models supporting advanced tooling).
+*   **🛠️ Extensible Tool & Agent System:** Designed for easy addition of new custom tools and agents, allowing developers to tailor the bot's capabilities for diverse applications.
+*   **📸 Multimodal Input:** Send text messages, photos with captions, and URLs to interact with the bot.
+*   **💾 Conversation History:** Maintains context by remembering previous turns, including text, photo captions/placeholders, and outcomes of tool usage.
+*   **🔑 User API Keys & ⚙️ Model Selection:** Users can manage their own Google Gemini API keys and select preferred models via commands.
+*   **🚀 Flexible Deployment:** Supports both **Webhook** mode (recommended for production) and **Long Polling** mode (for development).
+*   **💅 Rich Formatting (via [telegramify-markdown](https://github.com/sudoskys/telegramify-markdown/)):**
     *   Properly formats Markdown in AI responses for Telegram (`MarkdownV2`).
-    *   Sends code blocks detected in responses as downloadable `.txt` files for better readability and usability.
-    *   Renders Mermaid diagrams (e.g., flowcharts, sequence diagrams) directly in the chat if the AI generates them in a Mermaid code block.
-    *   Latex Visualization (escaped) and Expanded Citation.
+    *   Sends code blocks as downloadable `.txt` files.
+    *   Renders Mermaid diagrams directly in chat.
+    *   Supports Latex visualization (escaped) and expanded citations.
+
+### 🧰 Default Tools Showcase (Powered by ADK)
+The bot comes with a set of pre-configured tools, demonstrating its agentic capabilities:
+*   **🔗 URL Context Retrieval**: Provide URLs as context; the bot can fetch and use their content.
+*   **🗣️ Native Text-to-Speech (TTS)**: Converts text responses into high-quality spoken audio.
+*   **🖼️ Image Generation (Imagen)**: Creates images from text prompts.
+*   **🕒 Get Current Time**: Tells the current date and time.
+*   **🌦️ Get Weather**: Provides current weather information for a specified city (requires `OPEN_WEATHER_API_KEY` configuration).
+*   **📚 Chat History Access**: Can access and search within the current chat's history.
+*   *(Easily add more tools based on your needs!)*
 
 ## 📝 Important Notes & Context
 
 
-*   **💡 Project Origin:** Developed as a practical exercise and demonstration following the **GDG Berlin "Using AI to help solve problems, both big and small!"** event, exploring Google Gemini's capabilities through iterative development.
-*   **Limited Multimodal History:** While the bot accepts photos and stores related information, the AI model might not fully "re-see" the image content from previous turns due to API/architectural constraints. Context relies mainly on text placeholders and captions.
+*   **💡 Project Evolution:** Originally a project exploring Gemini's capabilities, it has now evolved into an agentic application leveraging the Google Agent Development Kit (ADK) for enhanced functionality and extensibility.
+*   **Multimodal Context:** The bot handles multimodal inputs. While direct re-interpretation of past images by the AI has limitations, context is maintained through text, captions, URL content, and tool outputs.
 *   **Free Tier Considerations:** Deploying on free tiers (like Railway, Supabase) comes with limitations (usage, resources, cold starts) affecting performance. But you can enable a paid plan for handling more users if needed.
 
-## 🛠️ Setup & Running
+## 🛠️ Installation & Setup
+
+### Installing from PyPI (Recommended for Users)
+
+The `gemini-tel-bot` package is available on PyPI. You can install it using `pip` (or `uv pip`):
+
+```bash
+pip install gemini-tel-bot
+```
+Or with `uv`:
+```bash
+uv pip install gemini-tel-bot
+```
+
+**Important Setup for PyPI Users:**
+After installation, you will need to:
+1.  **Set up the Supabase Database:** Follow the instructions in the "2. Supabase Database Setup" section under "Development Setup" below. This is a one-time setup.
+2.  **Configure Environment Variables:** Create a `.env` file as described in "4. Create `.env` File" (under "Development Setup"), or manage these environment variables according to your deployment method.
+
+Once your database and environment are configured, you can run the bot using the script made available by the PyPI installation:
+```bash
+run-gemini-bot
+```
+This command is defined in your `pyproject.toml` and is installed into your Python environment's scripts directory by `pip` (or `uv pip`). For this command to be directly executable from your terminal, this scripts directory (e.g., `~/.local/bin` on Linux/macOS, or Python's `Scripts` folder on Windows) must be part of your system's `PATH` environment variable. This is a standard configuration for Python installations.
+
+### Development Setup (for Contributors or Local Modification)
+
+This setup is for those who want to contribute to the bot's development or run a modified version locally.
 
 ### 1. Prerequisites
 
@@ -96,39 +131,48 @@ This bot requires two tables in your Supabase project: `user_settings` and `chat
 *   Your existing "Security Note" about the `service_role` key can remain directly after this SQL block.
 *   **(Security Note):** The provided code typically uses the Supabase `service_role` key, which bypasses Row Level Security (RLS). If you need finer-grained control or plan to expose Supabase keys differently, configure RLS appropriately.
 
-### 3. Local Setup & Running (Polling Mode)
-
-This is recommended for development and testing.
+### 3. Clone & Install Dependencies for Development
 
 1.  **Clone the Repository:**
     ```bash
     git clone https://github.com/mohamadghaffari/gemini-tel-bot
-    cd <gemini-tel-bot>
+    cd gemini-tel-bot
     ```
-2.  **Install Dependencies:** uv will create and manage a virtual environment for you.
+    *(Note: If you are inside the project directory already, you can skip the clone and cd steps).*
+
+2.  **Install Dependencies:** `uv` will create and manage a virtual environment for you.
     ```bash
     uv sync --locked --all-extras --dev # For development, includes dev tools
     ```
-    uv automatically manages the project's virtual environment. To execute commands within this environment, you can use `uv run`.
-    Example: `uv run run-gemini-bot`
+    `uv` automatically manages the project's virtual environment. To execute commands within this environment, you can use `uv run`. For example: `uv run run-gemini-bot`.
 
+### 4. Create `.env` File
 
-3.  **Create `.env` File:** Create a file named `.env` in the project root by copying `.env.example` (e.g., `cp .env.example .env`). **Do not commit the `.env` file to Git!** It should already be in your `.gitignore`. Populate `.env` with your **local testing credentials**:
-    ```dotenv
-    # .env - For Local Development Only
-    BOT_MODE=polling
-    BOT_API_KEY=<YOUR_LOCAL_TESTING_BOT_TOKEN> # Use a SEPARATE token for testing
-    SUPABASE_URL=<YOUR_SUPABASE_URL>
-    SUPABASE_KEY=<YOUR_SUPABASE_SERVICE_ROLE_KEY> # Use service_role key
-    GEMINI_BOT_DEFAULT_API_KEY=<YOUR_GEMINI_API_KEY> # Optional default key
-    ```
-4.  **Run the Bot (Polling Mode):**
-    ```bash
-    uv run run-gemini-bot
-    ```
-    The bot will start polling Telegram for updates using your *local testing* bot token. You can interact with this test bot instance. Use `Ctrl+C` to stop.
+Create a file named `.env` in the project root by copying `.env.example` (e.g., `cp .env.example .env`).
+**Do not commit the `.env` file to Git!** It should already be in your `.gitignore`.
 
-### 4. Production Deployment (Webhook Mode - e.g., Railway)
+Populate `.env` with your **local testing credentials**:
+```dotenv
+# .env - For Local Development / Testing
+BOT_MODE=polling
+BOT_API_KEY=<YOUR_LOCAL_TESTING_BOT_TOKEN>
+SUPABASE_URL=<YOUR_SUPABASE_URL>
+SUPABASE_KEY=<YOUR_SUPABASE_SERVICE_ROLE_KEY>
+GOOGLE_API_KEY=<YOUR_GEMINI_API_KEY> # Optional: Bot's default operational Google API Key. If not set, users MUST provide their own.
+# DEFAULT_MODEL_NAME=gemini-1.5-flash-latest # Optional: Overrides the in-code default model if set.
+# MAX_HISTORY_LENGTH_TURNS=20 # Optional: Overrides the default history length (20 turns) if set.
+# DEFAULT_KEY_MESSAGE_LIMIT=10 # Optional: Overrides the default message limit (10 messages) for the bot's GOOGLE_API_KEY if set. Set to 0 for no limit.
+# OPEN_WEATHER_API_KEY=<YOUR_OPENWEATHERMAP_API_KEY> # Optional: Required for the weather tool.
+```
+### 5. Run the Bot (Polling Mode for Development)
+
+To run the bot in polling mode for local development, use the following command:
+```bash
+uv run run-gemini-bot
+```
+The bot will start polling Telegram for updates using your *local testing* bot token. You can interact with this test bot instance. Use `Ctrl+C` to stop.
+
+### Production Deployment (Webhook Mode - e.g., Railway)
 
 This uses a web server (Gunicorn) to handle updates via a webhook.
 
@@ -137,7 +181,7 @@ This uses a web server (Gunicorn) to handle updates via a webhook.
     *   A [Railway](https://railway.com?referralCode=6U8dFG) account (or similar PaaS supporting Python WSGI apps).
 2.  **Code Structure:** Ensure your project includes:
     *   `pyproject.toml` (Defines dependencies and project metadata for uv. Railway will use this to install dependencies.)
-    *   `Procfile` (e.g., `web: uv run gunicorn api.webhook:app --bind 0.0.0.0:$PORT`)
+    *   `Procfile` (e.g., `web: uv run gunicorn gemini_tel_bot.api:app --bind 0.0.0.0:$PORT`)
     *   `src/gemini_tel_bot/cli.py` (Handles polling mode startup, invoked by `run-gemini-bot` script).
     *   `api/webhook.py` (WSGI entry point).
     *   All other Python modules (`bot.py`, `handlers.py`, `config.py`, etc.).
@@ -150,7 +194,10 @@ This uses a web server (Gunicorn) to handle updates via a webhook.
         *   `BOT_API_KEY`: `<YOUR_PRODUCTION_BOT_TOKEN>`
         *   `SUPABASE_URL`: `<YOUR_SUPABASE_URL>`
         *   `SUPABASE_KEY`: `<YOUR_SUPABASE_SERVICE_ROLE_KEY>`
-        *   `GEMINI_BOT_DEFAULT_API_KEY`: `<YOUR_GEMINI_API_KEY>` (Optional)
+        *   `GOOGLE_API_KEY`: `<YOUR_GEMINI_API_KEY>` (Optional: The bot's default operational Google API Key. If not set, users must provide their own via /set_api_key for the bot to function with Gemini.)
+        *   `DEFAULT_MODEL_NAME`: (Optional: Overrides the in-code default model, e.g., `gemini-1.5-flash-latest`)
+        *   `MAX_HISTORY_LENGTH_TURNS`: (Optional: Overrides the default history length of 20 turns if set.)
+        *   `DEFAULT_KEY_MESSAGE_LIMIT`: (Optional: Overrides the default message limit of 10 for the bot's `GOOGLE_API_KEY`. Set to `0` for no limit. Applies if `GOOGLE_API_KEY` is used.)
         *   `PYTHON_VERSION`: `3.11` (Or your target Python version, good practice for Railway)
 5.  **Deploy:** Railway will build and deploy based on your Git pushes. Monitor build/deploy logs.
 6.  **Set Telegram Webhook:**
@@ -186,4 +233,21 @@ Start a chat with your bot on Telegram (either the local test instance or the de
     *   **Database:** Verify Supabase credentials and table structure.
     *   **AI API:** Check API keys and model validity.
 
+## Configuration
+
+### Optional Environment Variables
+
+-   `OPEN_WEATHER_API_KEY`: Your API key from [OpenWeatherMap](https://openweathermap.org/appid). Required if you want to enable the weather information tool. Add this to your `.env` file.
+
+### Extensibility
+
+The agentic architecture powered by Google ADK makes it straightforward to:
+-   Define new tools with specific functionalities.
+-   Create specialized agents that utilize these tools for complex tasks.
+-   Integrate with various APIs and services.
+
 ---
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](https://raw.githubusercontent.com/mohamadghaffari/gemini-tel-bot/main/LICENSE) file for details.

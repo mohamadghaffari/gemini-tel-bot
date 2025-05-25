@@ -1,6 +1,6 @@
 [project]
 name = "gemini-tel-bot"
-version = "0.1.0"
+version = "0.1.1"
 description = "A versatile Telegram bot built with Python that allows users to chat with Google Gemini models."
 authors = [
     {name = "Mohammad GhaffariFar", email = "mohammaddevgermany@gmail.com"},
@@ -8,7 +8,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "pytelegrambotapi @ git+https://github.com/mohamadghaffari/pyTelegramBotAPI.git",
+    "pytelegrambotapi",
     "google-genai",
     "supabase",
     "gunicorn",
@@ -16,9 +16,28 @@ dependencies = [
     "telegramify-markdown[mermaid]",
     "google-adk",
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
+    "Natural Language :: English",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/mohamadghaffari/gemini-tel-bot"
+"Bug Tracker" = "https://github.com/mohamadghaffari/gemini-tel-bot/issues"
 
 [project.scripts]
-run-gemini-bot = "gemini_tel_bot.cli:main"
+run-gemini-bot = "gemini_tel_bot.cli:start_bot_polling"
 
 [project.optional-dependencies]
 dev = [
@@ -26,7 +45,9 @@ dev = [
     "black",
     "mypy",
     "uv",
-    "pre-commit"
+    "pre-commit",
+    "isort",
+    "types-requests",
 ]
 
 [tool.black]
@@ -43,6 +64,11 @@ check_untyped_defs = true
 warn_return_any = true
 show_error_codes = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "telegramify_markdown.*"
+ignore_missing_imports = true
+disallow_any_unimported = false
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

@@ -1,8 +1,10 @@
-import sys
+import asyncio
 import logging
+import sys
+
 from gemini_tel_bot import handlers
-from gemini_tel_bot.config import BOT_MODE
 from gemini_tel_bot.bot import get_bot_instance
+from gemini_tel_bot.config import BOT_MODE
 
 log_level = logging.DEBUG if BOT_MODE == "polling" else logging.INFO
 logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -16,7 +18,7 @@ if BOT_MODE == "polling":
     logger.debug("Debug logging enabled for polling mode in cli.py.")
 
 
-def main() -> None:
+async def main() -> None:
     """Main function to run the bot in polling mode."""
     logger.info(f"Starting application via CLI in {BOT_MODE} mode.")
 
@@ -28,12 +30,12 @@ def main() -> None:
             handlers.register_handlers(telegram_bot)
             logger.info("Bot instance created. Starting polling setup...")
             try:
-                webhook_info = telegram_bot.get_webhook_info()
+                webhook_info = await telegram_bot.get_webhook_info()
                 if webhook_info.url:
                     logger.warning(
                         f"Existing webhook found: {webhook_info.url}. Deleting it to start polling."
                     )
-                    telegram_bot.delete_webhook()
+                    await telegram_bot.delete_webhook()
                     logger.info("Webhook deleted successfully.")
                 else:
                     logger.info("No active webhook found.")
@@ -44,7 +46,7 @@ def main() -> None:
 
             logger.info("Starting bot polling...")
             try:
-                telegram_bot.infinity_polling()
+                await telegram_bot.polling(non_stop=True)
             except Exception as e:
                 logger.critical(f"Bot polling failed: {e}", exc_info=True)
                 sys.exit(1)
@@ -64,7 +66,11 @@ def main() -> None:
         sys.exit(1)
 
 
+def start_bot_polling() -> None:
+    """Synchronous entry point to run the bot in polling mode via asyncio.run."""
+    logger.info("Synchronous entry point start_bot_polling() called.")
+    asyncio.run(main())
+
+
 if __name__ == "__main__":
-    # This allows running `python src/gemini_tel_bot/cli.py` directly for testing,
-    # though the poetry script `poetry run run-gemini-bot` will be the standard way.
-    main()
+    start_bot_polling()
