@@ -4,8 +4,7 @@ from google.adk.agents import Agent
 from google.adk.models.google_llm import Gemini
 from google.genai import Client as GenAIClient
 
-from gemini_tel_bot.config import DEFAULT_MODEL_NAME, GOOGLE_API_KEY
-
+from ..config import DEFAULT_MODEL_NAME, GOOGLE_API_KEY
 from .prompt import TELEGRAM_BOT_SYSTEM_INSTRUCTION
 from .tools import (
     generate_image_impl,

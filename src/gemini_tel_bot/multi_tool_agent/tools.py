@@ -14,10 +14,9 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
-from gemini_tel_bot.helpers import sanitize_filename
-
 from ..config import IMAGE_GENERATION_MODEL, OPEN_WEATHER_API_KEY, VOICE_MODEL
 from ..db import get_history_from_db
+from ..helpers import sanitize_filename
 
 logger = logging.getLogger(__name__)
 

@@ -174,16 +174,16 @@ The bot will start polling Telegram for updates using your *local testing* bot t
 
 ### Production Deployment (Webhook Mode - e.g., Railway)
 
-This uses a web server (Gunicorn) to handle updates via a webhook.
+This uses an ASGI server (Uvicorn) with a FastAPI application to handle updates via a webhook.
 
 1.  **Prerequisites:**
     *   A Git repository with your latest code pushed.
-    *   A [Railway](https://railway.com?referralCode=6U8dFG) account (or similar PaaS supporting Python WSGI apps).
+    *   A [Railway](https://railway.com?referralCode=6U8dFG) account (or similar PaaS supporting Python ASGI apps).
 2.  **Code Structure:** Ensure your project includes:
     *   `pyproject.toml` (Defines dependencies and project metadata for uv. Railway will use this to install dependencies.)
-    *   `Procfile` (e.g., `web: uv run gunicorn gemini_tel_bot.api:app --bind 0.0.0.0:$PORT`)
+    *   `Procfile` (e.g., `web: uvicorn gemini_tel_bot.api.webhook:app --host 0.0.0.0 --port $PORT --workers 1`)
     *   `src/gemini_tel_bot/cli.py` (Handles polling mode startup, invoked by `run-gemini-bot` script).
-    *   `api/webhook.py` (WSGI entry point).
+    *   `src/gemini_tel_bot/api/webhook.py` (FastAPI/ASGI application entry point).
     *   All other Python modules (`bot.py`, `handlers.py`, `config.py`, etc.).
 3.  **Railway Project Setup:**
     *   Create a new Railway project linked to your Git repository.
@@ -202,7 +202,7 @@ This uses a web server (Gunicorn) to handle updates via a webhook.
 5.  **Deploy:** Railway will build and deploy based on your Git pushes. Monitor build/deploy logs.
 6.  **Set Telegram Webhook:**
     *   Get your Railway service's public URL (e.g., `https://your-app-name.up.railway.app`).
-    *   Construct the full webhook URL: `https://your-app-name.up.railway.app/api/webhook` (This assumes your `api/webhook.py` defines a route that results in this path. For example, if `api/webhook.py` creates a Flask app with `@app.route('/api/webhook')`, or a Blueprint mounted at `/api` with a `/webhook` route).
+    *   Construct the full webhook URL: `https://your-app-name.up.railway.app/api/webhook` (This path is defined in your `src/gemini_tel_bot/api/webhook.py` FastAPI application).
     *   Set the webhook via browser or `curl`:
         ```
         https://api.telegram.org/bot<YOUR_PRODUCTION_BOT_TOKEN>/setWebhook?url=<YOUR_FULL_WEBHOOK_URL>

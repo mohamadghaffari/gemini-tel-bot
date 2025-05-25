@@ -1,8 +1,9 @@
-import asyncio
 import json
 import logging
-from typing import Callable
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
+from fastapi import FastAPI, HTTPException, Request, Response
 from telebot import types as telebot_types
 from telebot.async_telebot import AsyncTeleBot
 
@@ -11,149 +12,167 @@ from ..bot import get_bot_instance
 
 logger = logging.getLogger(__name__)
 
-
+# Global bot instance, to be managed by the lifespan context
 _global_bot_instance: AsyncTeleBot | None = None
 _initialization_error: bool = False
 
 
-def initialize_bot() -> AsyncTeleBot | None:
-    """Creates the bot instance and registers handlers once per worker.
-    This webhook module assumes it will work with an AsyncTeleBot instance.
+def initialize_bot_for_fastapi() -> AsyncTeleBot | None:
     """
-    global _global_bot_instance, _initialization_error
-    if _global_bot_instance is not None or _initialization_error:
-        return _global_bot_instance
+    Initializes the bot instance and registers handlers.
+    This should be called once, e.g., during FastAPI startup.
+    """
+    local_bot_instance: AsyncTeleBot | None = None
+    initialization_failed_locally = False
 
     logger.info(
-        "Initializing bot instance for webhook worker (expecting AsyncTeleBot)..."
+        "Attempting to initialize bot instance for FastAPI worker (expecting AsyncTeleBot)..."
     )
     temp_bot_instance = get_bot_instance()
 
     if temp_bot_instance is None:
         logger.critical(
-            "Failed to create bot instance (get_bot_instance returned None). Worker cannot process requests."
+            "Failed to create bot instance (get_bot_instance returned None). "
+            "FastAPI worker cannot process requests."
         )
-        _initialization_error = True
+        initialization_failed_locally = True
         return None
 
     if not isinstance(temp_bot_instance, AsyncTeleBot):
         logger.critical(
-            f"Webhook initialize_bot expected AsyncTeleBot but received {type(temp_bot_instance)}. "
-            f"Webhook functionality will likely fail or be incorrect. Assigning anyway to satisfy linter for now."
+            f"FastAPI expected AsyncTeleBot but received {type(temp_bot_instance)}. "
+            "Webhook functionality will likely fail or be incorrect."
         )
-        _initialization_error = True
-        _global_bot_instance = temp_bot_instance
-        return _global_bot_instance
+        initialization_failed_locally = True
+        return None
 
     try:
-        logger.info("Registering handlers for webhook worker (with AsyncTeleBot)...")
+        logger.info("Registering handlers for FastAPI worker (with AsyncTeleBot)...")
         handlers.register_handlers(temp_bot_instance)
-        logger.info("Webhook handlers registered successfully for AsyncTeleBot.")
-        _global_bot_instance = temp_bot_instance
+        logger.info("FastAPI handlers registered successfully for AsyncTeleBot.")
+        local_bot_instance = temp_bot_instance
     except Exception as e:
         logger.critical(
-            f"Failed to register webhook handlers for AsyncTeleBot: {e}", exc_info=True
+            f"Failed to register FastAPI handlers for AsyncTeleBot: {e}", exc_info=True
+        )
+        initialization_failed_locally = True
+        local_bot_instance = None
+
+    if initialization_failed_locally:
+        return None
+    return local_bot_instance
+
+
+@asynccontextmanager
+async def lifespan(
+    app_instance: FastAPI,
+) -> AsyncIterator[None]:  # app_instance is the FastAPI app
+    """
+    Context manager to handle application startup and shutdown events.
+    """
+    global _global_bot_instance, _initialization_error  # pylint: disable=global-statement
+    logger.info("FastAPI application lifespan startup event triggered.")
+
+    bot_instance_candidate = initialize_bot_for_fastapi()
+    if bot_instance_candidate is None:
+        logger.error(
+            "Bot initialization FAILED during FastAPI startup. Webhook will not function."
         )
         _initialization_error = True
         _global_bot_instance = None
-
-    return _global_bot_instance
-
-
-_global_bot_instance = initialize_bot()
-
-
-def app(
-    environ: dict, start_response: Callable[[str, list[tuple[str, str]]], None]
-) -> list[bytes]:
-    """
-    WSGI application entry point for Telegram webhook.
-    Handles the HTTP request/response cycle and passes the body to Telebot.
-    Uses the pre-initialized global bot instance.
-    """
-    global _global_bot_instance, _initialization_error
-
-    status = "200 OK"
-    headers = [("Content-type", "text/plain")]
-    response_body = b"OK"
-
-    if _global_bot_instance is None or not isinstance(
-        _global_bot_instance, AsyncTeleBot
-    ):
-        logger.error(
-            f"Cannot process webhook request: AsyncTeleBot instance is not available. Type: {type(_global_bot_instance)}"
+    else:
+        logger.info(
+            "Bot initialized successfully during FastAPI startup. Webhook is active."
         )
-        status = "500 Internal Server Error"
-        response_body = b"Bot not configured for async webhook or initialization failed"
-        start_response(status, headers)
-        return [response_body]
+        _global_bot_instance = bot_instance_candidate
+        _initialization_error = False
 
-    current_bot_instance = _global_bot_instance
+    yield  # Application runs here
+
+    # Shutdown logic (if any) can go here
+    logger.info("FastAPI application lifespan shutdown event triggered.")
+    if _global_bot_instance:
+        pass
+    logger.info("FastAPI application shutdown complete.")
+
+
+# Initialize FastAPI app with the lifespan manager
+app = FastAPI(
+    title="Gemini Telegram Bot Webhook",
+    description="Handles incoming Telegram updates for the Gemini Telegram Bot.",
+    version="0.1.1",
+    lifespan=lifespan,
+)
+
+
+@app.post(
+    "/api/webhook",
+    summary="Telegram Webhook Endpoint",
+    description="Receives updates from Telegram and processes them using AsyncTeleBot.",
+    tags=["telegram"],
+)
+async def handle_telegram_webhook(request: Request) -> Response:
+    """
+    Handles incoming POST requests from Telegram.
+    """
+    global _global_bot_instance, _initialization_error  # pylint: disable=global-statement
+
+    if _initialization_error or _global_bot_instance is None:
+        logger.error(
+            "Webhook called but bot instance is not available (initialization failed or not run)."
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Bot service temporarily unavailable due to initialization error",
+        )
+
+    update_json_str: str = ""
+    update_id_str: str = "N/A"
     try:
-        if environ.get("REQUEST_METHOD") == "POST":
-            logger.debug("Webhook received POST request.")
-            try:
-                content_length = int(environ.get("CONTENT_LENGTH", 0))
-                body = environ["wsgi.input"].read(content_length)
-                logger.debug(f"Webhook read body ({content_length} bytes).")
+        body_bytes = await request.body()
+        update_json_str = body_bytes.decode("utf-8")
+        if not update_json_str:
+            logger.warning("Webhook received POST request with empty body.")
+            raise HTTPException(status_code=400, detail="Empty body")
 
-                if not body:
-                    logger.warning("Received POST request with empty body.")
-                    status = "400 Bad Request"
-                    response_body = b"Empty body"
-                else:
-                    try:
-                        update_json_str = body.decode("utf-8")
-                        logger.debug(f"Webhook update body: {update_json_str[:200]}...")
-                        update = telebot_types.Update.de_json(update_json_str)
-                        logger.info(f"Webhook processing update ID: {update.update_id}")
+        logger.debug(f"Webhook update body: {update_json_str[:500]}...")
+        update = telebot_types.Update.de_json(update_json_str)
+        update_id_str = str(update.update_id)
+        logger.info(f"Webhook processing update ID: {update_id_str}")
 
-                        async def process_update_async(
-                            bot: AsyncTeleBot, upd: telebot_types.Update
-                        ) -> None:
-                            await bot.process_new_updates([upd])
+        await _global_bot_instance.process_new_updates([update])
 
-                        asyncio.run(process_update_async(current_bot_instance, update))
+        logger.info(f"Webhook finished processing update ID: {update_id_str}")
+        return Response(content="OK", media_type="text/plain")
 
-                        logger.info(
-                            f"Webhook finished processing update ID: {update.update_id}"
-                        )
-                    except json.JSONDecodeError:
-                        logger.error(f"Failed to decode webhook body as JSON: {body!r}")
-                        status = "400 Bad Request"
-                        response_body = b"Invalid JSON body"
-                    except Exception as e:
-                        logger.exception(
-                            f"Error in async processing for update ID {getattr(update, 'update_id', 'N/A')}:"
-                        )
-                        status = "200 OK"
-                        response_body = b"Processing Error (check logs)"
-
-            except Exception as e:
-                logger.exception("Error during POST request body processing:")
-                status = "500 Internal Server Error"
-                response_body = b"Internal Server Error reading request"
-
-        else:
-            # Handle non-POST requests gracefully
-            status = "405 Method Not Allowed"
-            headers = [("Content-type", "text/plain"), ("Allow", "POST")]
-            response_body = (
-                b"This is a Telegram bot webhook endpoint. Please send POST requests."
-            )
-            logger.warning(
-                f"Received non-POST request: {environ.get('REQUEST_METHOD')}"
-            )
-
+    except json.JSONDecodeError:
+        logger.error(
+            f"Failed to decode webhook body as JSON: {update_json_str!r}", exc_info=True
+        )
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("Unexpected error during WSGI request processing:")
-        status = "500 Internal Server Error"
-        response_body = b"Internal Server Error"
+        logger.exception(f"Error processing update ID {update_id_str}:")
+        return Response(
+            content="Processing Error (check server logs)",
+            media_type="text/plain",
+            status_code=200,
+        )
 
-    if not isinstance(response_body, bytes):
-        response_body = str(response_body).encode("utf-8")
 
-    logger.debug(f"Webhook responding with status: {status}")
-    start_response(status, headers)
-
-    return [response_body]
+@app.get("/", tags=["health"], summary="Health Check")
+async def root() -> dict[str, str]:
+    """A simple health check endpoint."""
+    if not _initialization_error and _global_bot_instance:
+        return {
+            "message": "Gemini Telegram Bot Webhook is active and bot is initialized."
+        }
+    elif _initialization_error:
+        return {
+            "message": "Gemini Telegram Bot Webhook is active, but bot initialization FAILED."
+        }
+    else:
+        return {
+            "message": "Gemini Telegram Bot Webhook is active, but bot is not yet initialized (startup pending or issue)."
+        }

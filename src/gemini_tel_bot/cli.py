@@ -2,9 +2,9 @@ import asyncio
 import logging
 import sys
 
-from gemini_tel_bot import handlers
-from gemini_tel_bot.bot import get_bot_instance
-from gemini_tel_bot.config import BOT_MODE
+from . import handlers
+from .bot import get_bot_instance
+from .config import BOT_MODE
 
 log_level = logging.DEBUG if BOT_MODE == "polling" else logging.INFO
 logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
