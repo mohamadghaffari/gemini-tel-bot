@@ -3,7 +3,7 @@ import os
 try:
     from dotenv import load_dotenv
 
-    env_path = load_dotenv(verbose=True, override=False)
+    env_path = load_dotenv(verbose=True, override=True)
     if env_path:
         print(f"INFO: Loaded environment variables from: {env_path}")
     else:

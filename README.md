@@ -131,7 +131,29 @@ This bot requires two tables in your Supabase project: `user_settings` and `chat
 *   Your existing "Security Note" about the `service_role` key can remain directly after this SQL block.
 *   **(Security Note):** The provided code typically uses the Supabase `service_role` key, which bypasses Row Level Security (RLS). If you need finer-grained control or plan to expose Supabase keys differently, configure RLS appropriately.
 
-### 3. Clone & Install Dependencies for Development
+### 3. Create and Activate Virtual Environment (using uv)
+
+Before cloning or installing dependencies, it's highly recommended to create a dedicated virtual environment for the project. If you have `uv` installed (see Prerequisites), you can do this easily:
+
+```bash
+# Navigate to where you want your project directory to be (or create it)
+# mkdir gemini-tel-bot-project
+# cd gemini-tel-bot-project
+
+# Create a virtual environment (e.g., named .venv) using Python 3.11
+uv venv -p python3.11 .venv
+
+# Activate the virtual environment
+# On macOS/Linux:
+source .venv/bin/activate
+# On Windows (PowerShell):
+# .venv\Scripts\Activate.ps1
+# On Windows (CMD):
+# .venv\Scripts\activate.bat
+```
+Subsequent `uv` commands (like `uv sync`) will operate within this activated environment.
+
+### 4. Clone & Install Dependencies for Development
 
 1.  **Clone the Repository:**
     ```bash
@@ -146,7 +168,7 @@ This bot requires two tables in your Supabase project: `user_settings` and `chat
     ```
     `uv` automatically manages the project's virtual environment. To execute commands within this environment, you can use `uv run`. For example: `uv run run-gemini-bot`.
 
-### 4. Create `.env` File
+### 5. Create `.env` File
 
 Create a file named `.env` in the project root by copying `.env.example` (e.g., `cp .env.example .env`).
 **Do not commit the `.env` file to Git!** It should already be in your `.gitignore`.
@@ -162,9 +184,10 @@ GOOGLE_API_KEY=<YOUR_GEMINI_API_KEY> # Optional: Bot's default operational Googl
 # DEFAULT_MODEL_NAME=gemini-1.5-flash-latest # Optional: Overrides the in-code default model if set.
 # MAX_HISTORY_LENGTH_TURNS=20 # Optional: Overrides the default history length (20 turns) if set.
 # DEFAULT_KEY_MESSAGE_LIMIT=10 # Optional: Overrides the default message limit (10 messages) for the bot's GOOGLE_API_KEY if set. Set to 0 for no limit.
+# LOADING_ANIMATION_FILE_ID=<YOUR_LOADING_ANIMATION_FILE_ID> # Optional: File ID for a GIF to show during processing. Send a GIF to the bot to get its ID.
 # OPEN_WEATHER_API_KEY=<YOUR_OPENWEATHERMAP_API_KEY> # Optional: Required for the weather tool.
 ```
-### 5. Run the Bot (Polling Mode for Development)
+### 6. Run the Bot (Polling Mode for Development)
 
 To run the bot in polling mode for local development, use the following command:
 ```bash

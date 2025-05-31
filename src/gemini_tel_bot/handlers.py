@@ -614,6 +614,55 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
                 f"Failed to send unsupported content message to {chat_id}: {e}"
             )
 
+    async def handle_animation_message(
+        message: telebot_types.Message, bot_for_reply: AsyncTeleBot
+    ) -> None:
+        """Handles animation messages to provide the file_id for configuration."""
+        chat_id = message.chat.id
+        animation = message.animation
+
+        if not animation:
+            logger.warning(
+                f"Animation message received for chat {chat_id} but no animation object found."
+            )
+            try:
+                await bot_for_reply.reply_to(
+                    message,
+                    "Something went wrong, I couldn't get the animation details.",
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to send 'no animation details' error to {chat_id}: {e}"
+                )
+            return
+
+        file_id = animation.file_id
+        user_identifier = "Unknown"
+        if message.from_user:
+            user_identifier = message.from_user.username or str(message.from_user.id)
+        logger.info(
+            f"Received animation from {chat_id}. File ID: {file_id}. User: {user_identifier}"
+        )
+
+        reply_text = (
+            f"Animation (GIF) received\\!\n\n"
+            f"Its Telegram File ID is: `{file_id}`\n\n"
+            f"To use this as your loading animation, set the `LOADING_ANIMATION_FILE_ID` "
+            f"variable in your `.env` file to this value\\.\n\n"
+            f"Example:\n`LOADING_ANIMATION_FILE_ID={file_id}`"
+        )
+
+        try:
+            await bot_for_reply.reply_to(
+                message, standardize(reply_text), parse_mode="MarkdownV2"
+            )
+            logger.info(f"Sent animation file_id ({file_id}) to chat {chat_id}")
+        except Exception as e:
+            logger.error(
+                f"Failed to send animation file_id reply to {chat_id}: {e}",
+                exc_info=True,
+            )
+
     @bot_instance.message_handler(commands=["start", "help"])
     async def welcome_wrapper(message: telebot_types.Message) -> None:
         await send_welcome(message, bot_instance)
@@ -700,6 +749,11 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
                 )
         else:
             await process_user_message(message, process_text_message, bot_instance)
+
+    @bot_instance.message_handler(content_types=["animation"])
+    async def animation_message_wrapper(message: telebot_types.Message) -> None:
+        """Wrapper for handling animation (GIF) messages to get file_id."""
+        await handle_animation_message(message, bot_instance)
 
     @bot_instance.message_handler(content_types=["photo"])
     async def photo_message_wrapper(message: telebot_types.Message) -> None:
