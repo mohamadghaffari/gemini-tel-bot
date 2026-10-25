@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/mohamadghaffari/gemini-tel-bot">
-    <img src="https://raw.githubusercontent.com/mohamadghaffari/gemini-tel-bot/main/images/logo.jpeg" width="150" alt="Bot Logo">
+    <img src="images/new_release.jpg" width="800" alt="Gemini Telegram Bot v0.2.0 Release Banner">
   </a>
 </p>
 
@@ -12,7 +12,7 @@
 [![mypy](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/mypy.yml/badge.svg)](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/mypy.yml)
 [![lint](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/lint-black.yml/badge.svg)](https://github.com/mohamadghaffari/gemini-tel-bot/actions/workflows/lint-black.yml)
 
-An advanced, **agentic Telegram bot** built with Python and the **Google Agent Development Kit (ADK)**. It leverages the latest **Google Gemini models** to provide a rich, interactive, and extensible chat experience. The bot supports multi-modal interactions (text, photos, URLs), advanced tool usage (including URL context retrieval, native Text-to-Speech, and image generation with Imagen), maintains conversation history, and offers flexible deployment options. Users can easily add new agents and tools to customize the bot for their specific use cases.
+An advanced, **agentic Telegram bot** built with Python and the **Google Agent Development Kit (ADK)**. It leverages the latest **Google Gemini models** to provide a rich, interactive, and extensible chat experience. The bot supports multi-modal interactions (text, photos, URLs), advanced tool usage (including URL context retrieval, native Text-to-Speech, and image generation & photo editing with Gemini Image / Imagen), maintains conversation history, and offers flexible deployment options. Users can easily add new agents and tools to customize the bot for their specific use cases.
 
 ## ✨ Core Features & Capabilities
 
@@ -33,7 +33,7 @@ An advanced, **agentic Telegram bot** built with Python and the **Google Agent D
 The bot comes with a set of pre-configured tools, demonstrating its agentic capabilities:
 *   **🔗 URL Context Retrieval**: Provide URLs as context; the bot can fetch and use their content.
 *   **🗣️ Native Text-to-Speech (TTS)**: Converts text responses into high-quality spoken audio.
-*   **🖼️ Image Generation (Imagen)**: Creates images from text prompts.
+*   **🖼️ Image Generation & Photo Editing (`gemini-3.1-flash-image` / Imagen)**: Generates brand-new images from text prompts and directly edits/transforms user-uploaded photos (e.g., background swaps, placing you in new scenes).
 *   **🕒 Get Current Time**: Tells the current date and time.
 *   **🌦️ Get Weather**: Provides current weather information for a specified city (requires `OPEN_WEATHER_API_KEY` configuration).
 *   **📚 Chat History Access**: Can access and search within the current chat's history.
