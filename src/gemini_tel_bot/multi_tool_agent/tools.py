@@ -18,6 +18,27 @@ from ..helpers import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
+# Per-chat cache of the most recently uploaded user photo (bytes, mime_type) for image editing
+_latest_user_photo_cache: dict[int, tuple[bytes, str]] = {}
+
+
+def set_latest_user_photo(chat_id: int, image_bytes: bytes, mime_type: str) -> None:
+    """Caches the latest uploaded photo for a chat so image editing tools can reference it."""
+    _latest_user_photo_cache[chat_id] = (image_bytes, mime_type)
+    logger.info(
+        f"Cached latest user photo for chat_id {chat_id} ({len(image_bytes)} bytes, {mime_type})."
+    )
+
+
+def get_latest_user_photo(chat_id: int) -> tuple[bytes, str] | None:
+    """Retrieves the latest cached photo for a chat, if any."""
+    return _latest_user_photo_cache.get(chat_id)
+
+
+def clear_latest_user_photo(chat_id: int) -> None:
+    """Clears the cached photo for a chat."""
+    _latest_user_photo_cache.pop(chat_id, None)
+
 
 def get_current_time() -> str:
     """Returns the current date and time."""
@@ -448,9 +469,16 @@ async def generate_speech_impl(
         return {"status": "error", "message": f"TTS API Error ({err_code}) - {msg}"}
 
 
-async def generate_image_impl(prompt: str, api_key_for_tool: str) -> dict[str, Any]:
-    """Generates an image based on a prompt using Google's Gemini Image or Imagen API."""
-    logger.info(f"Tool: generate_image_impl called for prompt: '{prompt[:100]}...'")
+async def generate_image_impl(
+    prompt: str,
+    api_key_for_tool: str,
+    chat_id: int | None = None,
+    use_uploaded_photo: bool = False,
+) -> dict[str, Any]:
+    """Generates or edits an image based on a prompt (and optional user-uploaded photo) using Google's Gemini Image or Imagen API."""
+    logger.info(
+        f"Tool: generate_image_impl called for prompt: '{prompt[:100]}...', chat_id={chat_id}, use_uploaded_photo={use_uploaded_photo}"
+    )
     if not prompt.strip():
         return {
             "status": "error",
@@ -474,7 +502,13 @@ async def generate_image_impl(prompt: str, api_key_for_tool: str) -> dict[str, A
         image_bytes: bytes | None = None
         mime_type: str = "image/png"
 
-        if "imagen" in image_model_name.lower():
+        cached_photo = (
+            get_latest_user_photo(chat_id)
+            if (use_uploaded_photo and chat_id is not None)
+            else None
+        )
+
+        if "imagen" in image_model_name.lower() and not cached_photo:
             config = genai_types.GenerateImagesConfig(
                 number_of_images=1, output_mime_type="image/jpeg", aspect_ratio="1:1"
             )
@@ -489,12 +523,30 @@ async def generate_image_impl(prompt: str, api_key_for_tool: str) -> dict[str, A
                 image_bytes = result.generated_images[0].image.image_bytes
                 mime_type = "image/jpeg"
         else:
-            # Gemini native image generation models (e.g., gemini-2.5-flash-image, gemini-3.1-flash-image, gemini-3-pro-image)
+            # Gemini native image generation & editing models (e.g., gemini-3.1-flash-image, gemini-2.5-flash-image, gemini-3-pro-image)
+            effective_model = (
+                "gemini-3.1-flash-image"
+                if "imagen" in image_model_name.lower()
+                else image_model_name
+            )
             gen_config = genai_types.GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"]
             )
+            contents_payload: Any
+            if cached_photo:
+                ref_bytes, ref_mime = cached_photo
+                logger.info(
+                    f"IMAGE_TOOL: Including user's uploaded photo ({len(ref_bytes)} bytes, {ref_mime}) for image editing in chat {chat_id}."
+                )
+                contents_payload = [
+                    genai_types.Part.from_bytes(data=ref_bytes, mime_type=ref_mime),
+                    genai_types.Part(text=prompt),
+                ]
+            else:
+                contents_payload = prompt
+
             response = await client.aio.models.generate_content(
-                model=image_model_name, contents=prompt, config=gen_config
+                model=effective_model, contents=contents_payload, config=gen_config
             )
             if response.candidates and response.candidates[0].content:
                 for part in response.candidates[0].content.parts or []:

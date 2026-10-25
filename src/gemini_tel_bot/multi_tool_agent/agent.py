@@ -99,8 +99,15 @@ class TelegramBotAgent:
             text_to_speak=text_to_speak, api_key_for_tool=self.effective_google_api_key
         )
 
-    async def generate_image(self, prompt: str) -> dict[str, Any]:
-        """Generates an image based on a prompt using Google's Gemini Image / Imagen API."""
+    async def generate_image(
+        self, prompt: str, use_uploaded_photo: bool = False
+    ) -> dict[str, Any]:
+        """Generates a new image or edits/transforms the user's uploaded photo using Google's Gemini Image API.
+
+        Args:
+            prompt (str): Detailed description of the image to generate, or the editing/transformation instructions to apply to the user's uploaded photo.
+            use_uploaded_photo (bool): Set to True when the user asks to edit, modify, change the background/scene of, or create a new photo based on the photo they uploaded in this chat. Set to False when generating a brand new image from text alone.
+        """
         if self.effective_google_api_key is None:
             logger.error(
                 f"Cannot generate image for chat {self.chat_id}: effective_google_api_key is None."
@@ -110,7 +117,10 @@ class TelegramBotAgent:
                 "message": "API key not available for image generation.",
             }
         return await generate_image_impl(
-            prompt=prompt, api_key_for_tool=self.effective_google_api_key
+            prompt=prompt,
+            api_key_for_tool=self.effective_google_api_key,
+            chat_id=self.chat_id,
+            use_uploaded_photo=use_uploaded_photo,
         )
 
     def _create_tool_list(self) -> list[Any]:

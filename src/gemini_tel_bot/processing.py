@@ -36,6 +36,7 @@ from .helpers import (
     stream_draft_update,
 )
 from .multi_tool_agent.agent import TelegramBotAgent, get_or_create_agent
+from .multi_tool_agent.tools import clear_latest_user_photo, set_latest_user_photo
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,8 @@ _DRAFT_THROTTLE_SECONDS = 0.35
 
 
 def clear_adk_session(chat_id: int) -> None:
-    """Clears the in-memory ADK session for the given chat_id."""
+    """Clears the in-memory ADK session and cached photo for the given chat_id."""
+    clear_latest_user_photo(chat_id)
     session_id_str = str(chat_id)
     app_sessions = _adk_session_service.sessions.get(ADK_APP_NAME, {})
     for user_id, user_sessions in list(app_sessions.items()):
@@ -1188,6 +1190,9 @@ async def process_photo_message(
             f"Downloaded photo for {chat_id}, size: {len(downloaded_file_bytes)} bytes, Determined MIME type: {mime_type}"
         )
 
+        # Cache the uploaded photo so the generate_image tool can directly edit/transform it
+        set_latest_user_photo(chat_id, downloaded_file_bytes, mime_type)
+
         image_part = genai_types.Part(
             inline_data=genai_types.Blob(
                 mime_type=mime_type, data=downloaded_file_bytes
@@ -1197,6 +1202,12 @@ async def process_photo_message(
         parts_for_gemini: list[genai_types.Part] = []
         if user_caption:
             parts_for_gemini.append(genai_types.Part(text=user_caption))
+        else:
+            parts_for_gemini.append(
+                genai_types.Part(
+                    text="I have uploaded this photo. Briefly acknowledge it and let me know if I'd like to ask questions about it or edit/transform it."
+                )
+            )
         parts_for_gemini.append(image_part)
 
         return parts_for_gemini

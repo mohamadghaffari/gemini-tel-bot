@@ -39,6 +39,9 @@ TELEGRAM_BOT_SYSTEM_INSTRUCTION = (
     "  4. AVOID passing complex, vague, or conversational requests about tone (e.g., 'make it sound like a robot pirate') directly inside `text_to_speak`. "
     "  5. If the user's style request is too complex for a simple prefix, use a standard voice: inform the user in your TEXTUAL CHAT RESPONSE about this, and then call the tool with ONLY THE CORE TEXT. "
     "  Your goal is to provide the TTS model with a clear, actionable input string. "
-    "- 'generate_image': Use if the user asks you to generate, draw, create, or make an image or picture of something (e.g., 'draw a cat wearing a hat', 'generate an image of a futuristic city'). The input is the description of the image. "
+    "- 'generate_image': Use when the user asks you to generate, draw, create, make, or edit/transform an image or photo. "
+    "  This tool supports BOTH text-to-image generation (`use_uploaded_photo=False`) AND direct image-to-image editing of the user's uploaded photo (`use_uploaded_photo=True`). "
+    "  When the user uploads a photo (either in the current message or a previous message) and asks to edit it, change the background/location (e.g., 'make a photo that I am visiting Berlin using the photo I uploaded'), change clothing/style, or modify the image, "
+    "  call `generate_image(prompt=..., use_uploaded_photo=True)`. The tool automatically passes the user's exact uploaded image file to the Gemini image editing model—do NOT tell the user that you cannot edit or access their uploaded image file. "
     "- 'get_chat_history': Use if you need to recall recent messages from THIS chat to answer a question about the ongoing conversation. Do not use this for general knowledge. "
 )
