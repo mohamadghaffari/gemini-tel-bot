@@ -13,10 +13,11 @@ except ImportError:
     pass
 
 # --- Env variables ---
-BOT_MODE = os.getenv(
-    "BOT_MODE", "webhook"
-).lower()  # Default to webhook for safety in production
+BOT_MODE = (
+    os.getenv("BOT_MODE", "webhook").strip().lower()
+)  # Default to webhook for safety in production
 BOT_API_KEY = os.getenv("BOT_API_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 # The bot's default operational key, loaded from the GOOGLE_API_KEY environment variable.
 # This will be imported and used by other modules if a user-specific key isn't provided.
@@ -26,9 +27,18 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # --- Model Configuration ---
-DEFAULT_MODEL_NAME: str = os.getenv("DEFAULT_MODEL_NAME", "gemini-1.5-flash-latest")
-VOICE_MODEL: str = "gemini-2.5-flash-preview-tts"
-IMAGE_GENERATION_MODEL: str = "models/imagen-3.0-generate-002"
+DEFAULT_MODEL_NAME: str = os.getenv("DEFAULT_MODEL_NAME", "gemini-3.8-flash")
+VOICE_MODEL: str = os.getenv("VOICE_MODEL", "gemini-2.5-flash-preview-tts")
+IMAGE_GENERATION_MODEL: str = os.getenv(
+    "IMAGE_GENERATION_MODEL", "gemini-3.1-flash-image"
+)
+
+# --- Streaming Configuration ---
+ENABLE_STREAMING: bool = os.getenv("ENABLE_STREAMING", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 MAX_HISTORY_LENGTH_TURNS: int = int(os.getenv("MAX_HISTORY_LENGTH_TURNS", "20"))
 

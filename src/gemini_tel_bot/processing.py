@@ -1,10 +1,11 @@
-import asyncio
 import logging
 import os
 import re
+import time
 from typing import Any, Callable, Coroutine
 
 from google import genai
+from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.api_core.exceptions import (
@@ -13,20 +14,26 @@ from google.api_core.exceptions import (
     NotFound,
     PermissionDenied,
     ResourceExhausted,
-    ServerError,
 )
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 from telebot import types as telebot_types
 from telebot.async_telebot import AsyncTeleBot
 
-from .config import DEFAULT_MODEL_NAME, GOOGLE_API_KEY, LOADING_ANIMATION_FILE_ID
+from .config import (
+    DEFAULT_MODEL_NAME,
+    ENABLE_STREAMING,
+    GOOGLE_API_KEY,
+    LOADING_ANIMATION_FILE_ID,
+)
 from .custom_types import AIInteractionContext, UserSettings
 from .db import get_history_from_db, save_turn_to_db
+from .gemini_utils import normalize_or_fallback_model_name
 from .helpers import (
     check_db_and_settings,
     check_message_limit_and_increment,
     split_and_send_message,
+    stream_draft_update,
 )
 from .multi_tool_agent.agent import TelegramBotAgent, get_or_create_agent
 
@@ -35,8 +42,10 @@ logger = logging.getLogger(__name__)
 # Regex to find URLs in text
 URL_REGEX = r"(?:(?:https?|ftp):\/\/|www\.)(?:\([-A-Z0-9+&@#\/%?=~_|$!:,.;]*\)|[-A-Z0-9+&@#\/%?=~_|$!:,.;])*(?:\([-A-Z0-9+&@#\/%?=~_|$!:,.;]*\)|[A-Z0-9+&@#\/%?=~_|$])"
 
+ADK_APP_NAME = "TelegramGeminiBot"
+
 # --- ADK Session Management ---
-_adk_session_service: InMemorySessionService = InMemorySessionService()  # type: ignore[no-any-unimported]
+_adk_session_service: InMemorySessionService = InMemorySessionService()
 
 # Module-level client for google.genai.
 _default_genai_client_instance: genai.Client | None = None
@@ -44,14 +53,26 @@ _current_client_api_key_for_default_client: str | None = (
     "__INITIAL_UNSET__"  # Sentinel to force first init
 )
 
+_DRAFT_THROTTLE_SECONDS = 0.35
+
+
+def clear_adk_session(chat_id: int) -> None:
+    """Clears the in-memory ADK session for the given chat_id."""
+    session_id_str = str(chat_id)
+    app_sessions = _adk_session_service.sessions.get(ADK_APP_NAME, {})
+    for user_id, user_sessions in list(app_sessions.items()):
+        if session_id_str in user_sessions:
+            user_sessions.pop(session_id_str, None)
+            logger.info(
+                f"Cleared ADK in-memory session for chat_id {chat_id} (user_id: {user_id})."
+            )
+
 
 async def _ensure_default_genai_client(
     api_key_to_use: str | None,
 ) -> genai.Client | None:
     """
     Ensures a default genai.Client instance is created with the appropriate API key.
-    This client is intended to be implicitly picked up by ADK Agent's internal
-    GenerativeModel instantiations if no other client context is found.
     Returns the client instance, or None if creation failed.
     """
     global _default_genai_client_instance, _current_client_api_key_for_default_client
@@ -106,6 +127,20 @@ def _extract_urls(text: str) -> list[str]:
     return re.findall(URL_REGEX, text, re.IGNORECASE)
 
 
+def _supports_url_context(model_for_agent: str) -> bool:
+    """Checks if a model supports the Gemini UrlContext tool."""
+    clean_name = model_for_agent.replace("models/", "").lower()
+    return clean_name.startswith(
+        (
+            "gemini-2.5",
+            "gemini-3",
+            "gemini-4",
+            "gemini-flash",
+            "gemini-pro",
+        )
+    )
+
+
 async def _process_urls_directly(
     message: telebot_types.Message,
     bot_instance: AsyncTeleBot,
@@ -115,7 +150,9 @@ async def _process_urls_directly(
     waiting_animation: telebot_types.Message | None,
     caption_updated_for_tool: bool,
     chat_id: int,
-    urls_found: list[str],  # Should be non-empty if this function is called
+    urls_found: list[str],
+    use_draft_streaming: bool = False,
+    draft_id: int | None = None,
 ) -> tuple[bool, bool]:  # (handled_fully, caption_updated)
     """
     Attempts to process the user's message directly using the URL tool if URLs are present.
@@ -126,14 +163,24 @@ async def _process_urls_directly(
         f"URLs found for chat {chat_id}: {urls_found}. Attempting direct processing."
     )
 
-    if not active_genai_client:
+    if not _supports_url_context(model_for_agent):
         logger.warning(
-            f"URL Tool ({chat_id}): active_genai_client (default client for URL tool) is None. Direct URL tool might fail or skip."
+            f"Model {model_for_agent} does not support URL context tool. Skipping direct URL processing."
         )
-        # Depending on strictness, could return False here, but let's allow attempt if model supports
-        # and let the API call fail if client is truly unusable.
+        return False, caption_updated_for_tool
 
-    if waiting_animation and not caption_updated_for_tool:
+    thread_id = getattr(message, "message_thread_id", None)
+
+    if use_draft_streaming and draft_id is not None:
+        await stream_draft_update(
+            bot_instance,
+            chat_id,
+            draft_id,
+            "🔗 Accessing information from URLs...",
+            message_thread_id=thread_id,
+        )
+        caption_updated_for_tool = True
+    elif waiting_animation and not caption_updated_for_tool:
         try:
             await bot_instance.edit_message_caption(
                 caption="Accessing information from URLs... 🔗",
@@ -145,19 +192,6 @@ async def _process_urls_directly(
             logger.warning(
                 f"Failed to edit 'Thinking...' animation caption for URL processing: {e_caption_url}"
             )
-
-    supported_url_models = [
-        "gemini-2.5-flash-preview-05-20",
-        "gemini-2.5-pro-preview-05-06",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-live-001",
-    ]
-
-    if model_for_agent not in supported_url_models:
-        logger.warning(
-            f"Model {model_for_agent} not in list of known URL context supported models. Skipping direct URL processing."
-        )
-        return False, caption_updated_for_tool  # Not handled, fall through to ADK agent
 
     try:
         if not active_genai_client:
@@ -171,24 +205,50 @@ async def _process_urls_directly(
             tools=[url_tool], response_mime_type="text/plain"
         )
 
-        direct_response = await asyncio.to_thread(
-            active_genai_client.models.generate_content,
-            model=f"models/{model_for_agent}",
-            contents=user_turn_content,  # Use the passed user_turn_content
-            config=url_processing_config,
-        )
-
         response_text_from_url_tool = ""
         agent_response_content_for_db_url_tool: genai_types.Content | None = None
 
-        if direct_response.candidates:
-            first_candidate = direct_response.candidates[0]
-            if first_candidate.content:
-                agent_response_content_for_db_url_tool = first_candidate.content
-                if first_candidate.content.parts:
-                    for part in first_candidate.content.parts:
-                        if part.text:
+        if use_draft_streaming and draft_id is not None:
+            last_draft_time = 0.0
+            stream_iter = await active_genai_client.aio.models.generate_content_stream(
+                model=f"models/{model_for_agent}",
+                contents=user_turn_content,
+                config=url_processing_config,
+            )
+            async for chunk in stream_iter:
+                if chunk.candidates and chunk.candidates[0].content:
+                    for part in chunk.candidates[0].content.parts or []:
+                        if part.text and not getattr(part, "thought", False):
                             response_text_from_url_tool += part.text
+                            now = time.monotonic()
+                            if now - last_draft_time >= _DRAFT_THROTTLE_SECONDS:
+                                await stream_draft_update(
+                                    bot_instance,
+                                    chat_id,
+                                    draft_id,
+                                    response_text_from_url_tool,
+                                    message_thread_id=thread_id,
+                                )
+                                last_draft_time = now
+            if response_text_from_url_tool:
+                agent_response_content_for_db_url_tool = genai_types.Content(
+                    role="model",
+                    parts=[genai_types.Part(text=response_text_from_url_tool)],
+                )
+        else:
+            direct_response = await active_genai_client.aio.models.generate_content(
+                model=f"models/{model_for_agent}",
+                contents=user_turn_content,
+                config=url_processing_config,
+            )
+            if direct_response.candidates:
+                first_candidate = direct_response.candidates[0]
+                if first_candidate.content:
+                    agent_response_content_for_db_url_tool = first_candidate.content
+                    if first_candidate.content.parts:
+                        for part in first_candidate.content.parts:
+                            if part.text and not getattr(part, "thought", False):
+                                response_text_from_url_tool += part.text
 
         if not response_text_from_url_tool:
             response_text_from_url_tool = (
@@ -205,11 +265,7 @@ async def _process_urls_directly(
             f"Direct URL processing successful for chat {chat_id}. Response: '{response_text_from_url_tool[:100]}...'"
         )
 
-        # Save turns and send response
-
         if agent_response_content_for_db_url_tool:
-            # Re-fetch history to get the correct index for the model turn,
-            # as the user turn was saved just before _handle_ai_interaction
             history_before_model_save = await get_history_from_db(chat_id)
             model_turn_idx_for_url = (
                 len(history_before_model_save)
@@ -236,7 +292,7 @@ async def _process_urls_directly(
                 logger.warning(
                     f"Failed to delete waiting animation (URL direct): {del_e}"
                 )
-        return True, caption_updated_for_tool  # Handled fully
+        return True, caption_updated_for_tool
 
     except Exception as e_direct_url:
         logger.error(
@@ -248,7 +304,6 @@ async def _process_urls_directly(
             "Sorry, I had trouble processing the content from the URL(s). I'll try to respond based on your text alone.",
             bot_instance,
         )
-        # Not fully handled, fall through to ADK agent.
         return False, caption_updated_for_tool
 
 
@@ -348,13 +403,12 @@ async def _handle_ai_interaction_error(
             )
             error_message_to_send = f"The AI service is currently unavailable or encountered a server error (Status: {e.status if hasattr(e, 'status') else 'N/A'}). Please try again later."
 
-        case genai_errors.APIError():  # Catch other genai_errors
+        case genai_errors.APIError():
             logger.error(
                 f"GenAI APIError for chat {chat_id} (Status: {e.status if hasattr(e, 'status') else 'N/A'}): {e.message if hasattr(e, 'message') else str(e)}"
             )
             error_message_to_send = f"An unexpected AI service API error occurred (Status: {e.status if hasattr(e, 'status') else 'N/A'}). Please try again."
 
-        # google.api_core.exceptions
         case PermissionDenied():
             logger.error(f"Google API Core Permission denied for chat {chat_id}: {e}")
             error_message_to_send = (
@@ -368,30 +422,25 @@ async def _handle_ai_interaction_error(
             error_message_to_send = (
                 "A required Google service or resource was not found."
             )
-        case (
-            ClientError()
-        ):  # This is the aliased google.api_core.exceptions.ClientError
+        case ClientError():
             logger.error(
                 f"A Google API Core ClientError occurred for chat {chat_id}: {e}"
             )
             error_message_to_send = (
                 "A client-side error occurred with a Google service."
             )
-        case (
-            GoogleAPIError()
-        ):  # This is the aliased google.api_core.exceptions.GoogleAPIError
+        case GoogleAPIError():
             logger.error(
                 f"A Google API Core GoogleAPIError occurred for chat {chat_id}: {e}"
             )
             error_message_to_send = "A general Google API error occurred."
-        case _:  # Default case for any other exceptions
-            # Already logged with exc_info by the caller of this helper
-            pass  # error_message_to_send already has a default
+        case _:
+            pass
 
     await split_and_send_message(message, error_message_to_send, bot_instance)
 
 
-async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimported]
+async def _process_adk_events_and_get_response(
     runner: Runner,
     user_id_for_agent: str,
     session_id_for_agent: str,
@@ -400,68 +449,116 @@ async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimporte
     waiting_animation: telebot_types.Message | None,
     initial_caption_updated_for_tool: bool,
     chat_id: int,
-) -> tuple[str, genai_types.Content | None, dict | None, dict | None, bool, bool]:
+    use_draft_streaming: bool = False,
+    draft_id: int | None = None,
+    message_thread_id: int | None = None,
+) -> tuple[
+    str,
+    genai_types.Content | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    bool,
+    bool,
+]:
     """
-    Iterates through ADK runner events, processes tool calls/responses,
-    and extracts the final agent response.
-
-    Returns:
-        - response_text_from_agent (str)
-        - agent_response_content_for_db (genai_types.Content | None)
-        - audio_file_to_send (dict | None)
-        - image_file_to_send (dict | None)
-        - processing_completed_successfully (bool)
-        - caption_updated_for_tool (bool)
+    Iterates through ADK runner events (with SSE streaming when enabled),
+    processes tool calls/responses, streams message drafts, and extracts the final agent response.
     """
     response_text_from_agent = "Agent did not provide a response."
     agent_response_content_for_db: genai_types.Content | None = None
-    audio_file_to_send: dict | None = None
-    image_file_to_send: dict | None = None
+    audio_file_to_send: dict[str, Any] | None = None
+    image_file_to_send: dict[str, Any] | None = None
     processing_completed_successfully = False
     caption_updated_for_tool = initial_caption_updated_for_tool
+
+    streamed_text_buffer = ""
+    last_draft_time = 0.0
+
+    run_config = RunConfig(
+        streaming_mode=(
+            StreamingMode.SSE if use_draft_streaming else StreamingMode.NONE
+        )
+    )
 
     async for event in runner.run_async(
         user_id=user_id_for_agent,
         session_id=session_id_for_agent,
         new_message=adk_content_for_user_turn,
+        run_config=run_config,
     ):
-        logger.debug(
-            f"ADK Event Loop for {chat_id} - Received event: {event}"
-        )  # ADDED LOG
-        if (
-            not caption_updated_for_tool
-            and event.content
-            and event.content.parts
-            and waiting_animation
-        ):
+        logger.debug(f"ADK Event Loop for {chat_id} - Received event: {event}")
+
+        # Handle partial SSE streaming chunks
+        if getattr(event, "partial", False):
+            if event.content and event.content.parts:
+                chunk_added = False
+                for part in event.content.parts:
+                    if (
+                        hasattr(part, "text")
+                        and part.text
+                        and not getattr(part, "thought", False)
+                    ):
+                        streamed_text_buffer += part.text
+                        chunk_added = True
+                if (
+                    chunk_added
+                    and use_draft_streaming
+                    and draft_id is not None
+                    and streamed_text_buffer.strip()
+                ):
+                    now = time.monotonic()
+                    if now - last_draft_time >= _DRAFT_THROTTLE_SECONDS:
+                        await stream_draft_update(
+                            bot_instance,
+                            chat_id,
+                            draft_id,
+                            streamed_text_buffer,
+                            message_thread_id=message_thread_id,
+                        )
+                        last_draft_time = now
+            continue
+
+        # Handle tool call status indicators
+        if not caption_updated_for_tool and event.content and event.content.parts:
             for part in event.content.parts:
                 if part.function_call:
                     tool_name = part.function_call.name
                     new_caption = None
-                    # Match against the names LLM uses (wrapper names)
                     if tool_name == "generate_speech":
                         new_caption = "Generating audio with Text-to-Speech... 🎤"
                     elif tool_name == "generate_image":
-                        new_caption = "Creating image with Imagen... 🎨"
+                        new_caption = "Creating image with Gemini... 🎨"
                     elif tool_name == "get_weather":
                         new_caption = "Fetching weather information... 🌦️"
 
                     if new_caption:
-                        try:
-                            await bot_instance.edit_message_caption(
-                                caption=new_caption,
-                                chat_id=chat_id,
-                                message_id=waiting_animation.message_id,
+                        if use_draft_streaming and draft_id is not None:
+                            await stream_draft_update(
+                                bot_instance,
+                                chat_id,
+                                draft_id,
+                                new_caption,
+                                message_thread_id=message_thread_id,
                             )
                             caption_updated_for_tool = True
                             break
-                        except Exception as e_caption:
-                            logger.warning(
-                                f"Failed to edit 'Thinking...' animation caption: {e_caption}"
-                            )
+                        elif waiting_animation:
+                            try:
+                                await bot_instance.edit_message_caption(
+                                    caption=new_caption,
+                                    chat_id=chat_id,
+                                    message_id=waiting_animation.message_id,
+                                )
+                                caption_updated_for_tool = True
+                                break
+                            except Exception as e_caption:
+                                logger.warning(
+                                    f"Failed to edit 'Thinking...' animation caption: {e_caption}"
+                                )
                     if caption_updated_for_tool or new_caption:
                         break
 
+        # Handle tool responses
         if event.content and event.content.parts:
             for part in event.content.parts:
                 if part.function_response:
@@ -486,7 +583,6 @@ async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimporte
                                     logger.info(
                                         f"ADK Image tool successful for {chat_id}. File: {image_file_to_send.get('file_path')}"
                                     )
-                                # Add other successful tool cases here if needed
                                 case _:
                                     logger.info(
                                         f"Tool '{tool_name}' completed successfully with response: {response_data}"
@@ -502,7 +598,9 @@ async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimporte
                             current_llm_text = "".join(
                                 p.text
                                 for p in event.content.parts
-                                if hasattr(p, "text") and p.text
+                                if hasattr(p, "text")
+                                and p.text
+                                and not getattr(p, "thought", False)
                             ).strip()
                             if (
                                 not current_llm_text
@@ -515,35 +613,20 @@ async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimporte
                             else:
                                 response_text_from_agent = f"{current_llm_text}\n\nTool Error : {tool_error_message}"
 
-        logger.debug(
-            f"ADK Event Loop for {chat_id} - Checking if event is final_response. Event: {event}"
-        )
         if event.is_final_response():
             logger.debug(f"Final ADK Event for {chat_id}: {event}")
             current_final_text = ""
-            if event.content:
-                logger.debug(f"Final ADK Event content for {chat_id}: {event.content}")
-                if event.content.parts:
-                    logger.debug(
-                        f"Final ADK Event parts for {chat_id}: {event.content.parts}"
-                    )
-                    for i, part_item in enumerate(event.content.parts):
-                        logger.debug(
-                            f"Final ADK Event part {i} for {chat_id}: {part_item}"
-                        )
-                        if hasattr(part_item, "text") and part_item.text:
-                            current_final_text += part_item.text
-                else:
-                    logger.debug(f"Final ADK Event for {chat_id} has no parts.")
-            else:
-                logger.debug(f"Final ADK Event for {chat_id} has no content.")
+            if event.content and event.content.parts:
+                for part_item in event.content.parts:
+                    if (
+                        hasattr(part_item, "text")
+                        and part_item.text
+                        and not getattr(part_item, "thought", False)
+                    ):
+                        current_final_text += part_item.text
 
-            logger.debug(
-                f"Extracted current_final_text for {chat_id}: '{current_final_text}'"
-            )
-            logger.debug(
-                f"response_text_from_agent before final logic for {chat_id}: '{response_text_from_agent}'"
-            )
+            if not current_final_text.strip() and streamed_text_buffer.strip():
+                current_final_text = streamed_text_buffer
 
             if (
                 response_text_from_agent == "Agent did not provide a response."
@@ -551,9 +634,6 @@ async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimporte
                 or "Tool Error" not in response_text_from_agent
             ):
                 response_text_from_agent = current_final_text
-                logger.debug(
-                    f"Set response_text_from_agent to current_final_text for {chat_id}: '{response_text_from_agent}'"
-                )
             elif (
                 current_final_text.strip()
                 and current_final_text.strip() not in response_text_from_agent
@@ -572,45 +652,17 @@ async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimporte
                         response_text_from_agent += "\nLLM: " + current_final_text
                     elif current_final_text:
                         response_text_from_agent += "\n" + current_final_text
-                    logger.debug(
-                        f"Appended current_final_text to response_text_from_agent for {chat_id}: '{response_text_from_agent}'"
-                    )
 
-            logger.debug(
-                f"Final response_text_from_agent for {chat_id}: '{response_text_from_agent}'"
-            )
-
-            agent_response_content_for_db = (
-                event.content
-                if event.content
-                and event.content.parts  # Ensure parts exist if content exists
-                else genai_types.Content(
-                    role="model",
-                    parts=[
-                        genai_types.Part(
-                            text=(
-                                response_text_from_agent
-                                if response_text_from_agent
-                                else ""
-                            )
-                        )
-                    ],  # Ensure part has text
-                )
-            )
-            if (
-                not agent_response_content_for_db.role
-            ):  # Should be set if from event.content
-                agent_response_content_for_db.role = "model"
-
-            # Ensure parts list is not empty if agent_response_content_for_db was constructed
-            if not agent_response_content_for_db.parts:
-                agent_response_content_for_db.parts = [
+            agent_response_content_for_db = genai_types.Content(
+                role="model",
+                parts=[
                     genai_types.Part(
                         text=(
                             response_text_from_agent if response_text_from_agent else ""
                         )
                     )
-                ]
+                ],
+            )
 
             logger.info(
                 f"ADK Agent final response for {chat_id}: '{response_text_from_agent[:100]}...'"
@@ -622,7 +674,9 @@ async def _process_adk_events_and_get_response(  # type: ignore[no-any-unimporte
         logger.error(
             f"ADK Agent interaction did not complete successfully for {chat_id} (no final_response event)."
         )
-        if (
+        if streamed_text_buffer.strip():
+            response_text_from_agent = streamed_text_buffer
+        elif (
             not response_text_from_agent
             or response_text_from_agent == "Agent did not provide a response."
         ):
@@ -651,8 +705,6 @@ async def _setup_ai_interaction_context(
     """
     Performs initial setup for AI interaction, including user identification,
     API key and model configuration, client and agent instantiation, and ADK runner setup.
-    Returns a dictionary context or None if a critical setup step fails,
-    handling sending a reply to the user in case of failure.
     """
     chat_id = message.chat.id
     if message.from_user is None:
@@ -665,7 +717,9 @@ async def _setup_ai_interaction_context(
     user_id_for_agent = str(message.from_user.id)
     session_id_for_agent = str(chat_id)
 
-    model_from_settings = user_settings.get("selected_model", DEFAULT_MODEL_NAME)
+    model_from_settings = normalize_or_fallback_model_name(
+        user_settings.get("selected_model", DEFAULT_MODEL_NAME)
+    )
     model_for_agent = model_from_settings.replace("models/", "")
     effective_api_key = user_settings.get("gemini_api_key")
 
@@ -703,9 +757,10 @@ async def _setup_ai_interaction_context(
         return None
 
     runner = Runner(
-        app_name="TelegramGeminiBot",
+        app_name=ADK_APP_NAME,
         agent=agent_instance.root_agent,
         session_service=_adk_session_service,
+        auto_create_session=True,
     )
 
     try:
@@ -748,17 +803,16 @@ async def _finalize_interaction_and_send_response(
     chat_id: int,
     response_text_from_agent: str,
     agent_response_content_for_db: genai_types.Content | None,
-    audio_file_to_send: dict | None,
-    image_file_to_send: dict | None,
+    audio_file_to_send: dict[str, Any] | None,
+    image_file_to_send: dict[str, Any] | None,
 ) -> None:
     """
     Saves the agent's turn to the database and sends the response (text, audio, image) to the user.
     """
-    # --- Save model's turn to DB ---
-    current_history_after_adk = await get_history_from_db(chat_id)  # Get latest state
+    current_history_after_adk = await get_history_from_db(chat_id)
     model_turn_index = (
         len(current_history_after_adk) if current_history_after_adk is not None else 0
-    )  # Next index for model response
+    )
 
     if agent_response_content_for_db:
         if not await save_turn_to_db(
@@ -773,13 +827,9 @@ async def _finalize_interaction_and_send_response(
     else:
         logger.warning(f"No agent_response_content_for_db to save for {chat_id}")
 
-    # --- Send response text to user ---
-    if (
-        response_text_from_agent and response_text_from_agent.strip()
-    ):  # Check if it's not just whitespace
+    if response_text_from_agent and response_text_from_agent.strip():
         await split_and_send_message(message, response_text_from_agent, bot_instance)
     else:
-        # This case means the LLM genuinely returned no text, and no tool error occurred to populate a message.
         logger.info(
             f"Agent returned empty text response for chat {chat_id}. Sending a generic reply."
         )
@@ -789,7 +839,6 @@ async def _finalize_interaction_and_send_response(
             bot_instance,
         )
 
-    # --- Send any generated files (audio/image) ---
     logger.debug(f"Finalizing: audio_file_to_send = {audio_file_to_send}")
     if audio_file_to_send and audio_file_to_send.get("file_path"):
         audio_path = audio_file_to_send["file_path"]
@@ -856,9 +905,7 @@ async def _handle_ai_interaction(
     bot_instance: AsyncTeleBot,
 ) -> None:
     """
-    Handles the core AI chat interaction using ADK Agent:
-    fetching history (via agent's tool), creating/getting agent,
-    sending message via agent, saving new turns, getting response, and sending reply.
+    Handles the core AI chat interaction using ADK Agent with live Telegram message draft streaming.
     """
     context = await _setup_ai_interaction_context(
         message, user_settings, user_input_parts, bot_instance
@@ -876,18 +923,43 @@ async def _handle_ai_interaction(
 
     response_text_from_agent = "Agent did not provide a response."
     agent_response_content_for_db: genai_types.Content | None = None
-    audio_file_to_send: dict | None = None
-    image_file_to_send: dict | None = None
+    audio_file_to_send: dict[str, Any] | None = None
+    image_file_to_send: dict[str, Any] | None = None
     processing_completed_successfully = False
     waiting_animation: telebot_types.Message | None = None
     caption_updated_for_tool: bool = False
 
+    chat_type = getattr(message.chat, "type", "private")
+    use_draft_streaming = ENABLE_STREAMING and chat_type == "private"
+    draft_id: int = (
+        (getattr(message, "message_id", 0) or int(time.time() * 1000)) & 0x7FFFFFFF
+    ) or 1
+    thread_id = getattr(message, "message_thread_id", None)
+
     try:
-        waiting_animation = await bot_instance.send_animation(
-            chat_id,
-            animation=LOADING_ANIMATION_FILE_ID,
-            caption="Thinking... please wait. ✨",
-        )
+        if use_draft_streaming:
+            # Trigger Telegram's native "Thinking…" draft indicator
+            draft_ok = await stream_draft_update(
+                bot_instance,
+                chat_id,
+                draft_id,
+                "",
+                message_thread_id=thread_id,
+            )
+            if not draft_ok:
+                use_draft_streaming = False
+
+        if not use_draft_streaming:
+            try:
+                waiting_animation = await bot_instance.send_animation(
+                    chat_id,
+                    animation=LOADING_ANIMATION_FILE_ID,
+                    caption="Thinking... please wait. ✨",
+                )
+            except Exception as anim_e:
+                logger.warning(
+                    f"Could not send waiting animation for chat {chat_id}: {anim_e}"
+                )
 
         adk_content_for_user_turn = genai_types.Content(
             role="user", parts=user_input_parts
@@ -905,13 +977,15 @@ async def _handle_ai_interaction(
                     caption_updated_for_tool=caption_updated_for_tool,
                     chat_id=chat_id,
                     urls_found=urls_found,
+                    use_draft_streaming=use_draft_streaming,
+                    draft_id=draft_id,
                 )
             )
             if handled_by_url_tool:
                 return
 
         logger.debug(
-            f"Calling agent runner for {chat_id} | UserID: {user_id_for_agent} | SessionID: {session_id_for_agent}"
+            f"Calling agent runner for {chat_id} | UserID: {user_id_for_agent} | SessionID: {session_id_for_agent} | Streaming: {use_draft_streaming}"
         )
 
         (
@@ -930,6 +1004,9 @@ async def _handle_ai_interaction(
             waiting_animation=waiting_animation,
             initial_caption_updated_for_tool=caption_updated_for_tool,
             chat_id=chat_id,
+            use_draft_streaming=use_draft_streaming,
+            draft_id=draft_id,
+            message_thread_id=thread_id,
         )
         await _finalize_interaction_and_send_response(
             message=message,
@@ -945,17 +1022,16 @@ async def _handle_ai_interaction(
         genai_errors.ClientError,
         genai_errors.ServerError,
         genai_errors.APIError,
-        PermissionDenied,  # google.api_core.exceptions
-        ResourceExhausted,  # google.api_core.exceptions
-        NotFound,  # google.api_core.exceptions
-        ClientError,  # aliased google.api_core.exceptions.ClientError
-        GoogleAPIError,  # aliased google.api_core.exceptions.GoogleAPIError
+        PermissionDenied,
+        ResourceExhausted,
+        NotFound,
+        ClientError,
+        GoogleAPIError,
     ) as e:
         await _handle_ai_interaction_error(
             e, message, bot_instance, chat_id, model_for_agent
         )
-    except Exception as e:  # Catch-all for any other unexpected errors
-        # Use the same handler, it has a default message for unknown exceptions
+    except Exception as e:
         await _handle_ai_interaction_error(
             e, message, bot_instance, chat_id, model_for_agent
         )
@@ -986,30 +1062,24 @@ async def process_user_message(
     )
 
     user_settings = await check_db_and_settings(chat_id, message, bot_instance)
-    if user_settings is None:  # check_db_and_settings handles sending a message
+    if user_settings is None:
         return
 
     if not await check_message_limit_and_increment(
         chat_id, message, user_settings, bot_instance
     ):
-        return  # check_message_limit_and_increment handles sending a message
+        return
 
-    # Process the message content (text, photo, etc.) into Gemini Parts
     user_input_parts = await content_processor(message, bot_instance)
-    if (
-        user_input_parts is None
-    ):  # content_processor should handle replies for invalid content
+    if user_input_parts is None:
         logger.warning(
             f"Content processor returned None for chat {chat_id}, type {message.content_type}. No AI interaction will occur."
         )
         return
 
-    # Save the user's valid turn to the database BEFORE calling the AI
-    # This ensures the user's message is recorded even if AI interaction fails later.
     current_history_before_ai = await get_history_from_db(chat_id)
     user_turn_index = len(current_history_before_ai) if current_history_before_ai else 0
 
-    # Assuming user_input_parts is always for a 'user' role here
     if not await save_turn_to_db(chat_id, user_turn_index, "user", user_input_parts):
         logger.error(
             f"Failed to save user turn to DB for {chat_id} at index {user_turn_index} BEFORE AI interaction."
@@ -1049,7 +1119,7 @@ async def process_text_message(
             )
         except Exception as e:
             logger.error(f"Failed to send 'empty text' reply to {chat_id}: {e}")
-        return None  # Indicate no valid parts to process
+        return None
 
     logger.info(f"Text message from {chat_id}: '{user_text[:50]}...'")
     return [genai_types.Part(text=user_text)]
@@ -1066,7 +1136,7 @@ async def process_photo_message(
         else f"Photo message from {chat_id} (no caption)."
     )
 
-    if not message.photo:  # Should not happen if content_type is 'photo' but good check
+    if not message.photo:
         logger.warning(
             f"Photo message from {chat_id} has no 'photo' attribute despite content_type. Skipping."
         )
@@ -1080,7 +1150,6 @@ async def process_photo_message(
         return None
 
     try:
-        # Get the largest available photo
         photo_to_download = message.photo[-1]
         file_info = await bot_instance.get_file(photo_to_download.file_id)
 
@@ -1096,8 +1165,7 @@ async def process_photo_message(
 
         downloaded_file_bytes = await bot_instance.download_file(file_info.file_path)
 
-        # Determine MIME type from file extension if possible, default to jpeg
-        mime_type = "image/jpeg"  # Default
+        mime_type = "image/jpeg"
         file_extension_match = re.search(r"\.(\w+)$", file_info.file_path)
         if file_extension_match:
             ext = file_extension_match.group(1).lower()
@@ -1127,9 +1195,9 @@ async def process_photo_message(
         )
 
         parts_for_gemini: list[genai_types.Part] = []
-        if user_caption:  # Add caption as a text part if it exists
+        if user_caption:
             parts_for_gemini.append(genai_types.Part(text=user_caption))
-        parts_for_gemini.append(image_part)  # Add the image part
+        parts_for_gemini.append(image_part)
 
         return parts_for_gemini
 
@@ -1140,7 +1208,7 @@ async def process_photo_message(
                 message,
                 "Sorry, I encountered an error while trying to process the photo. Please try sending it again.",
             )
-        except Exception as e_reply:  # If replying also fails
+        except Exception as e_reply:
             logger.error(
                 f"Failed to send error reply for photo processing to {chat_id}: {e_reply}"
             )

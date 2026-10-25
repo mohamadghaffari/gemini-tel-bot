@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from time import time
+from typing import Any, cast
 
 from google.genai import types as genai_types
 from supabase import AsyncClient, create_async_client
@@ -19,6 +20,7 @@ from .custom_types import (
     UserSettings,
     UserSettingsTableRowUpsert,
 )
+from .gemini_utils import normalize_or_fallback_model_name
 
 logger = logging.getLogger(__name__)
 _cached_supabase_client: AsyncClient | None = None
@@ -79,12 +81,26 @@ async def get_user_settings_from_db(chat_id: int) -> UserSettings | None:
 
         if response.data and len(response.data) > 0:
             settings_data = response.data[0]
+            if not isinstance(settings_data, dict):
+                return {
+                    "gemini_api_key": None,
+                    "selected_model": DEFAULT_MODEL_NAME,
+                    "message_count": 0,
+                }
+            raw_selected_model = settings_data.get("selected_model", DEFAULT_MODEL_NAME)
+            normalized_model = normalize_or_fallback_model_name(
+                str(raw_selected_model) if raw_selected_model else DEFAULT_MODEL_NAME
+            )
+            raw_api_key = settings_data.get("gemini_api_key")
+            raw_msg_count = settings_data.get("message_count", 0)
             settings: UserSettings = {
-                "gemini_api_key": settings_data.get("gemini_api_key"),
-                "selected_model": settings_data.get(
-                    "selected_model", DEFAULT_MODEL_NAME
+                "gemini_api_key": str(raw_api_key) if raw_api_key is not None else None,
+                "selected_model": normalized_model,
+                "message_count": (
+                    int(raw_msg_count)
+                    if isinstance(raw_msg_count, (int, float, str))
+                    else 0
                 ),
-                "message_count": settings_data.get("message_count", 0),
             }
             logger.debug(f"Fetched settings: {settings}")
             return settings
@@ -125,7 +141,9 @@ async def save_user_settings_to_db(
         }
 
         response = await (
-            supabase_client.table("user_settings").upsert(final_data_to_save).execute()
+            supabase_client.table("user_settings")
+            .upsert(cast(dict[str, Any], final_data_to_save))
+            .execute()
         )
         end_time = time() - start_time
         logger.info(
@@ -178,6 +196,8 @@ async def get_history_from_db(chat_id: int) -> list[HistoryTurn] | None:
         history: list[HistoryTurn] = []
         if response.data:
             for row_idx, row in enumerate(response.data):
+                if not isinstance(row, dict):
+                    continue
                 role = row.get("role")
                 parts_data_raw = row.get("parts_json")
                 turn_index_from_db = row.get("turn_index", f"unknown_row_{row_idx}")

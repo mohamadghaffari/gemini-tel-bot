@@ -1,8 +1,8 @@
 import logging
+from typing import Any
 
 from google.adk.agents import Agent
 from google.adk.models.google_llm import Gemini
-from google.genai import Client as GenAIClient
 
 from ..config import DEFAULT_MODEL_NAME, GOOGLE_API_KEY
 from .prompt import TELEGRAM_BOT_SYSTEM_INSTRUCTION
@@ -59,21 +59,13 @@ class TelegramBotAgent:
             )
             self.gemini_llm_for_adk = Gemini(model=self.current_model_name)
         else:
-            try:
-                configured_genai_client = GenAIClient(
-                    api_key=self.effective_google_api_key
-                )
-                self.gemini_llm_for_adk = Gemini(model=self.current_model_name)
-                self.gemini_llm_for_adk.api_client = configured_genai_client
-                logger.info(
-                    f"TelegramBotAgent instance for chat {self.chat_id} will use Gemini LLM with a GenAIClient configured with API key ending ...{self.effective_google_api_key[-4:] if self.effective_google_api_key and len(self.effective_google_api_key) > 3 else 'N/A'}."
-                )
-            except Exception as e_client_assign:
-                logger.error(
-                    f"Error assigning configured GenAIClient to Gemini LLM for TelegramBotAgent instance (chat {self.chat_id}): {e_client_assign}. "
-                    "Instance's ADK Agent will use Gemini's default client initialization."
-                )
-                self.gemini_llm_for_adk = Gemini(model=self.current_model_name)
+            self.gemini_llm_for_adk = Gemini(
+                model=self.current_model_name,
+                client_kwargs={"api_key": self.effective_google_api_key},
+            )
+            logger.info(
+                f"TelegramBotAgent instance for chat {self.chat_id} will use Gemini LLM configured with API key ending ...{self.effective_google_api_key[-4:] if self.effective_google_api_key and len(self.effective_google_api_key) > 3 else 'N/A'}."
+            )
 
         self._tools = self._create_tool_list()
 
@@ -93,7 +85,7 @@ class TelegramBotAgent:
         """Retrieves recent chat history for the current conversation."""
         return await get_chat_history_impl(chat_id=self.chat_id)
 
-    async def generate_speech(self, text_to_speak: str) -> dict:
+    async def generate_speech(self, text_to_speak: str) -> dict[str, Any]:
         """Generates speech from text using Google's Text-to-Speech API."""
         if self.effective_google_api_key is None:
             logger.error(
@@ -107,8 +99,8 @@ class TelegramBotAgent:
             text_to_speak=text_to_speak, api_key_for_tool=self.effective_google_api_key
         )
 
-    async def generate_image(self, prompt: str) -> dict:
-        """Generates an image based on a prompt using Google's Imagen API."""
+    async def generate_image(self, prompt: str) -> dict[str, Any]:
+        """Generates an image based on a prompt using Google's Gemini Image / Imagen API."""
         if self.effective_google_api_key is None:
             logger.error(
                 f"Cannot generate image for chat {self.chat_id}: effective_google_api_key is None."
@@ -121,7 +113,7 @@ class TelegramBotAgent:
             prompt=prompt, api_key_for_tool=self.effective_google_api_key
         )
 
-    def _create_tool_list(self) -> list:
+    def _create_tool_list(self) -> list[Any]:
         """Helper to create the list of tools, using wrapper methods."""
 
         tools_list = [
@@ -146,7 +138,7 @@ class TelegramBotAgent:
                 f"new API key source='{'user-provided' if new_api_key else ('bot-default' if GOOGLE_API_KEY else 'None')}'."
             )
 
-            new_gemini_llm_instance_for_adk: Gemini  # type: ignore[no-any-unimported]
+            new_gemini_llm_instance_for_adk: Gemini
             if not new_effective_api_key:
                 logger.warning(
                     f"No API key explicitly available for updating agent instance {self.root_agent.name}. "
@@ -154,28 +146,14 @@ class TelegramBotAgent:
                 )
                 new_gemini_llm_instance_for_adk = Gemini(model=processed_new_model_name)
             else:
-                try:
-                    new_configured_genai_client = GenAIClient(
-                        api_key=new_effective_api_key
-                    )
-                    new_gemini_llm_instance_for_adk = Gemini(
-                        model=processed_new_model_name
-                    )
-                    new_gemini_llm_instance_for_adk.api_client = (
-                        new_configured_genai_client
-                    )
-                    logger.info(
-                        f"Update for agent instance {self.root_agent.name}: New Gemini LLM will use GenAIClient "
-                        f"with API key ending ...{new_effective_api_key[-4:] if new_effective_api_key and len(new_effective_api_key) > 3 else 'N/A'}."
-                    )
-                except Exception as e_client_setup:
-                    logger.error(
-                        f"Failed to set up new Gemini LLM with client during update for agent instance {self.root_agent.name}: {e_client_setup}. "
-                        "Falling back to default Gemini client init for the update."
-                    )
-                    new_gemini_llm_instance_for_adk = Gemini(
-                        model=processed_new_model_name
-                    )
+                new_gemini_llm_instance_for_adk = Gemini(
+                    model=processed_new_model_name,
+                    client_kwargs={"api_key": new_effective_api_key},
+                )
+                logger.info(
+                    f"Update for agent instance {self.root_agent.name}: New Gemini LLM will use client_kwargs "
+                    f"with API key ending ...{new_effective_api_key[-4:] if new_effective_api_key and len(new_effective_api_key) > 3 else 'N/A'}."
+                )
 
             self.current_model_name = processed_new_model_name
             self.raw_model_name = new_model_name

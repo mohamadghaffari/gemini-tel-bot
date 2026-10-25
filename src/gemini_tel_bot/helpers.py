@@ -6,14 +6,10 @@ import telegramify_markdown
 from google import genai
 from telebot import types as telebot_types
 from telebot.async_telebot import AsyncTeleBot
-from telegramify_markdown.customize import get_runtime_config
-from telegramify_markdown.interpreters import (
-    FileInterpreter,
-    InterpreterChain,
-    MermaidInterpreter,
-    TextInterpreter,
-)
-from telegramify_markdown.type import ContentTypes
+from telegramify_markdown.config import get_runtime_config
+from telegramify_markdown.content import ContentType, File, Photo, Text
+from telegramify_markdown.entity import MessageEntity as TgMdEntity
+from telegramify_markdown.entity import utf16_len
 
 from .config import DEFAULT_KEY_MESSAGE_LIMIT, DEFAULT_MODEL_NAME, GOOGLE_API_KEY
 from .custom_types import UserSettings
@@ -25,15 +21,85 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-get_runtime_config().markdown_symbol.head_level_1 = "📌"
+get_runtime_config().markdown_symbol.heading_level_1 = "📌"
 get_runtime_config().markdown_symbol.link = "🔗"
+
+_DRAFT_TEXT_LIMIT = 4096
+
+
+def to_telebot_entities(
+    entities: list[TgMdEntity] | None,
+) -> list[telebot_types.MessageEntity] | None:
+    """Converts telegramify-markdown MessageEntity objects into pyTelegramBotAPI MessageEntity objects."""
+    if not entities:
+        return None
+    return [telebot_types.MessageEntity(**e.to_dict()) for e in entities]
+
+
+def _tail_by_utf16(text: str, limit: int) -> str:
+    """Return the tail of text within limit UTF-16 code units without splitting surrogate pairs."""
+    total = 0
+    for i in range(len(text) - 1, -1, -1):
+        total += 2 if ord(text[i]) > 0xFFFF else 1
+        if total > limit:
+            return text[i + 1 :]
+    return text
+
+
+async def stream_draft_update(
+    bot_instance: AsyncTeleBot,
+    chat_id: int,
+    draft_id: int,
+    markdown_text: str,
+    message_thread_id: int | None = None,
+) -> bool:
+    """
+    Streams an ephemeral draft message update to Telegram using sendMessageDraft.
+    Pass empty markdown_text="" to display Telegram's native 'Thinking…' placeholder.
+    Returns True if successful, False if draft streaming is unsupported or failed.
+    """
+    try:
+        if not markdown_text:
+            await bot_instance.send_message_draft(
+                chat_id=chat_id,
+                draft_id=draft_id,
+                text="",
+                message_thread_id=message_thread_id,
+            )
+            return True
+
+        plain_text, md_entities = telegramify_markdown.convert(
+            markdown_text, latex_escape=True
+        )
+        if not plain_text:
+            plain_text = markdown_text
+            md_entities = []
+
+        if utf16_len(plain_text) > _DRAFT_TEXT_LIMIT:
+            plain_text = _tail_by_utf16(plain_text, _DRAFT_TEXT_LIMIT)
+            telebot_entities = None
+        else:
+            telebot_entities = to_telebot_entities(md_entities)
+
+        await bot_instance.send_message_draft(
+            chat_id=chat_id,
+            draft_id=draft_id,
+            text=plain_text,
+            entities=telebot_entities,
+            message_thread_id=message_thread_id,
+        )
+        return True
+    except Exception as e:
+        logger.debug(
+            f"send_message_draft failed or unsupported for chat {chat_id}: {e}"
+        )
+        return False
 
 
 async def _try_fix_and_resend_mermaid(
     original_mermaid_code: str,
     bot_instance: AsyncTeleBot,
     original_message: telebot_types.Message,
-    interpreter_chain: Any,
 ) -> bool:
     """
     Attempts to fix common Mermaid syntax issues and re-render.
@@ -42,26 +108,14 @@ async def _try_fix_and_resend_mermaid(
     logger.info(f"Attempting to fix Mermaid syntax for chat {original_message.chat.id}")
     fixed_mermaid_code = original_mermaid_code
 
-    # Simple fix 1: Ensure node labels are quoted if they aren't already and contain potentially problematic characters.
-    # This regex finds id[label] where label is not already quoted.
-    # It's a basic attempt and might not cover all cases or could be too greedy.
-    # Pattern: (\w+)\[([^"\]][^\]]*)\]  -- matches simple_id[unquoted label]
-    # Simpler: find any id[text] and ensure text is quoted.
-    # To avoid re-quoting: id\["text"\] vs id\[text\]
-    # Let's try to quote any label that isn't already starting with a quote.
-    # Example: A[Label with spaces] -> A["Label with spaces"]
-    # Example: B[Label-with-hyphen] -> B["Label-with-hyphen"]
-    # Example: C["Already Quoted"] -> remains C["Already Quoted"]
-    def quote_label(match: re.Match) -> str:
+    def quote_label(match: re.Match[str]) -> str:
         node_id = match.group(1)
         label_content = match.group(2)
         if label_content.startswith('"') and label_content.endswith('"'):
             return f"{node_id}[{label_content}]"  # Already quoted
-        # Escape existing double quotes within the label before adding new ones
         escaped_label_content = label_content.replace('"', '\\"')
         return f'{node_id}["{escaped_label_content}"]'
 
-    # This regex looks for patterns like `node_id[anything_not_a_closing_bracket]`
     try:
         fixed_mermaid_code = re.sub(
             r"(\w+)\s*\[\s*([^\]\n]+?)\s*\]", quote_label, fixed_mermaid_code
@@ -73,14 +127,12 @@ async def _try_fix_and_resend_mermaid(
         logger.error(
             f"Error during Mermaid regex fix for chat {original_message.chat.id}: {e_fix_re}"
         )
-        return False  # Don't proceed if regex itself fails
+        return False
 
     if fixed_mermaid_code == original_mermaid_code:
         logger.info(
             f"Mermaid fix did not change the code for chat {original_message.chat.id}. No re-render attempt with this fix."
         )
-        # Potentially add other fixes here in the future
-        # For now, if this one fix doesn't change anything, we assume it won't help.
         return False
 
     try:
@@ -88,18 +140,14 @@ async def _try_fix_and_resend_mermaid(
             f"Re-rendering fixed Mermaid code for chat {original_message.chat.id}..."
         )
         fixed_boxes = await telegramify_markdown.telegramify(
-            content=f"```mermaid\n{fixed_mermaid_code}\n```",  # Re-wrap in mermaid block
-            interpreters_use=interpreter_chain,  # Use the same chain
+            content=f"```mermaid\n{fixed_mermaid_code}\n```",
             latex_escape=True,
-            normalize_whitespace=True,
-            max_word_count=4090,  # Should be fine for a single diagram
+            render_mermaid=True,
+            max_message_length=4090,
         )
 
-        sent_fixed_version = False
         for item in fixed_boxes:
-            if (
-                item.content_type == ContentTypes.PHOTO
-            ):  # Successfully rendered as an image
+            if isinstance(item, Photo):
                 logger.info(
                     f"Successfully re-rendered fixed Mermaid as PHOTO for chat {original_message.chat.id}. Sending."
                 )
@@ -107,28 +155,18 @@ async def _try_fix_and_resend_mermaid(
                     original_message.chat.id,
                     (item.file_name, item.file_data),
                     caption="Rendered diagram (auto-fixed attempt):",
-                    parse_mode="MarkdownV2",
                 )
-                sent_fixed_version = True
-                # If we successfully send a photo, we assume the fix worked for this diagram.
-                return True  # Stop processing this failed diagram further
-            elif (
-                item.content_type == ContentTypes.FILE
-                and item.file_name == "invalid_mermaid.txt"
-            ):
+                return True
+            elif isinstance(item, File) and item.file_name == "invalid_mermaid.txt":
                 logger.warning(
                     f"Re-rendering fixed Mermaid still resulted in invalid_mermaid.txt for chat {original_message.chat.id}."
                 )
-                return False  # Fix didn't work
-            # Handle other types if necessary, though PHOTO is the expected success for mermaid
+                return False
 
-        if sent_fixed_version:
-            return True
-        else:
-            logger.info(
-                f"Re-rendering fixed Mermaid did not produce a sendable PHOTO for chat {original_message.chat.id}."
-            )
-            return False
+        logger.info(
+            f"Re-rendering fixed Mermaid did not produce a sendable PHOTO for chat {original_message.chat.id}."
+        )
+        return False
 
     except Exception as e_rerender:
         logger.error(
@@ -143,46 +181,41 @@ async def split_and_send_message(
     bot_instance: AsyncTeleBot,
     **kwargs: Any,
 ) -> None:
-
-    interpreter_chain = InterpreterChain(
-        [
-            TextInterpreter(),
-            FileInterpreter(),
-            MermaidInterpreter(session=None),
-        ]
-    )
-
     try:
-        boxs = await telegramify_markdown.telegramify(
+        boxes = await telegramify_markdown.telegramify(
             content=text,
-            interpreters_use=interpreter_chain,
             latex_escape=True,
-            normalize_whitespace=True,
-            max_word_count=4090,
+            render_mermaid=True,
+            max_message_length=4090,
         )
 
-        # Now process the results synchronously
-        for item in boxs:
+        for item in boxes:
             try:
-                # We can add delay here if needed using sleep
-                if item.content_type == ContentTypes.TEXT:
+                if isinstance(item, Text) or item.content_type == ContentType.TEXT:
+                    assert isinstance(item, Text)
                     await bot_instance.reply_to(
-                        message, item.content, parse_mode="MarkdownV2"
+                        message,
+                        item.text,
+                        entities=to_telebot_entities(item.entities),
                     )
-                elif item.content_type == ContentTypes.PHOTO:
+                elif isinstance(item, Photo) or item.content_type == ContentType.PHOTO:
+                    assert isinstance(item, Photo)
                     file_name_to_send = item.file_name
-                    print(
+                    logger.debug(
                         f"Attempting to send PHOTO with filename: {file_name_to_send}"
                     )
                     await bot_instance.send_photo(
                         message.chat.id,
                         (file_name_to_send, item.file_data),
-                        caption=item.caption,
-                        parse_mode="MarkdownV2",
+                        caption=item.caption_text or None,
+                        caption_entities=to_telebot_entities(item.caption_entities),
                     )
-                elif item.content_type == ContentTypes.FILE:
+                elif isinstance(item, File) or item.content_type == ContentType.FILE:
+                    assert isinstance(item, File)
                     file_name_to_send = item.file_name
-                    print(f"Attempting to send FILE with filename: {file_name_to_send}")
+                    logger.debug(
+                        f"Attempting to send FILE with filename: {file_name_to_send}"
+                    )
                     if file_name_to_send == "invalid_mermaid.txt" and item.file_data:
                         logger.warning(
                             f"Mermaid diagram rendering failed for chat {message.chat.id}. Original code in item.file_data."
@@ -192,32 +225,26 @@ async def split_and_send_message(
                             original_mermaid_code_str = (
                                 original_mermaid_code_bytes.decode("utf-8")
                             )
-                            # Attempt to fix and resend
                             fix_successful = await _try_fix_and_resend_mermaid(
                                 original_mermaid_code_str,
                                 bot_instance,
                                 message,
-                                interpreter_chain,
                             )
                             if fix_successful:
                                 logger.info(
                                     f"Successfully fixed and resent Mermaid diagram for chat {message.chat.id}."
                                 )
-                                continue  # Skip sending the raw original code
+                                continue
                         except UnicodeDecodeError as ude:
                             logger.error(
                                 f"Could not decode original mermaid code for fix attempt: {ude}"
                             )
-                            # Fall through to sending original file if decode fails
 
-                        # If fix was not successful or not attempted due to decode error, send original raw code
                         await bot_instance.reply_to(
                             message,
                             "⚠️ I tried to generate a Mermaid diagram, but it couldn't be rendered automatically (even after an auto-fix attempt). Here's the raw code:",
-                            parse_mode="MarkdownV2",
                         )
                         try:
-                            # Re-decode for sending, or use already decoded if available
                             raw_mermaid_to_send_str = (
                                 original_mermaid_code_bytes.decode("utf-8")
                             )
@@ -238,26 +265,29 @@ async def split_and_send_message(
                                 (
                                     file_name_to_send,
                                     original_mermaid_code_bytes,
-                                ),  # Send original bytes
+                                ),
                                 caption="Raw Mermaid code (failed to send as text).",
-                                parse_mode="MarkdownV2",
                             )
-                    else:  # Other files
+                    else:
                         await bot_instance.send_document(
                             message.chat.id,
                             (file_name_to_send, item.file_data),
-                            caption=item.caption,
-                            parse_mode="MarkdownV2",
+                            caption=item.caption_text or None,
+                            caption_entities=to_telebot_entities(item.caption_entities),
                         )
             except Exception as send_error:
-                print(f"Error sending item {item.content_type}: {send_error}")
+                logger.error(f"Error sending item {item.content_type}: {send_error}")
                 await bot_instance.send_message(
                     message.chat.id,
                     f"⚠️ Error processing part of the message: {send_error}",
                 )
 
     except Exception as telegramify_error:
-        print(f"Error during telegramify processing: {telegramify_error}")
+        logger.error(f"Error during telegramify processing: {telegramify_error}")
+        try:
+            await bot_instance.reply_to(message, text[:4090])
+        except Exception as fallback_err:
+            logger.error(f"Fallback reply_to also failed: {fallback_err}")
 
 
 async def check_db_and_settings(
@@ -350,7 +380,7 @@ async def check_message_limit_and_increment(
                     messages_remaining = DEFAULT_KEY_MESSAGE_LIMIT - count_to_save
                     if DEFAULT_KEY_MESSAGE_LIMIT > 0:
                         if messages_remaining == 1:
-                            warning_message = f"You have 1 message remaining with the default API key.\n\nPlease use `/set_api_key` to provide your own Gemini API key to send more messages after this one."  # Slightly rephrased for clarity
+                            warning_message = "You have 1 message remaining with the default API key.\n\nPlease use `/set_api_key` to provide your own Gemini API key to send more messages after this one."
                             try:
                                 await bot_instance.send_message(
                                     chat_id, warning_message, parse_mode="Markdown"

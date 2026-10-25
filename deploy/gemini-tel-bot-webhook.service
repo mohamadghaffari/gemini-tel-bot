@@ -1,0 +1,19 @@
+[Unit]
+Description=Gemini Telegram Bot (Webhook Mode via Uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/gemini-tel-bot
+EnvironmentFile=/opt/gemini-tel-bot/.env
+Environment="BOT_MODE=webhook"
+ExecStart=/opt/gemini-tel-bot/.venv/bin/uvicorn gemini_tel_bot.api.webhook:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

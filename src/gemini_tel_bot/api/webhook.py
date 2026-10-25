@@ -9,6 +9,7 @@ from telebot.async_telebot import AsyncTeleBot
 
 from .. import handlers
 from ..bot import get_bot_instance
+from ..config import WEBHOOK_URL
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +87,24 @@ async def lifespan(
         )
         _global_bot_instance = bot_instance_candidate
         _initialization_error = False
+        if WEBHOOK_URL:
+            try:
+                await _global_bot_instance.set_webhook(url=WEBHOOK_URL)
+                logger.info(f"Telegram webhook automatically set to: {WEBHOOK_URL}")
+            except Exception as wh_err:
+                logger.error(
+                    f"Failed to automatically set Telegram webhook to {WEBHOOK_URL}: {wh_err}"
+                )
 
     yield  # Application runs here
 
     # Shutdown logic (if any) can go here
     logger.info("FastAPI application lifespan shutdown event triggered.")
     if _global_bot_instance:
-        pass
+        try:
+            await _global_bot_instance.close_session()
+        except Exception:
+            pass
     logger.info("FastAPI application shutdown complete.")
 
 
@@ -100,7 +112,7 @@ async def lifespan(
 app = FastAPI(
     title="Gemini Telegram Bot Webhook",
     description="Handles incoming Telegram updates for the Gemini Telegram Bot.",
-    version="0.1.1",
+    version="0.2.0",
     lifespan=lifespan,
 )
 

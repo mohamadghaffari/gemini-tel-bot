@@ -1,6 +1,6 @@
 [project]
 name = "gemini-tel-bot"
-version = "0.1.1"
+version = "0.2.0"
 description = "A versatile Telegram bot built with Python that allows users to chat with Google Gemini models."
 authors = [
     {name = "Mohammad GhaffariFar", email = "mohammaddevgermany@gmail.com"},
@@ -55,6 +55,9 @@ dev = [
 [tool.black]
 line-length = 88
 target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
 
 [tool.mypy]
 python_executable = "./.venv/bin/python3"

@@ -1,13 +1,11 @@
-import asyncio
 import datetime
-import functools
-import json
 import logging
 import mimetypes
 import os
 import struct
 import tempfile
 import time
+from typing import Any
 
 import requests
 from google import genai
@@ -27,15 +25,17 @@ def get_current_time() -> str:
 
 
 def _fetch_weather_api(
-    base_url: str, params: dict, city: str, weather_type: str
-) -> dict:
+    base_url: str, params: dict[str, Any], city: str, weather_type: str
+) -> dict[str, Any]:
     """Helper function to fetch weather data from OpenWeatherMap API."""
     try:
         response = requests.get(base_url, params=params, timeout=10)
         response.raise_for_status()
         return {"status": "success", "data": response.json()}
     except requests.exceptions.HTTPError as http_err:
-        status_code = http_err.response.status_code
+        status_code = (
+            http_err.response.status_code if http_err.response is not None else 500
+        )
         log_message = f"OpenWeatherMap API key error for {city} ({weather_type}, status {status_code}): {http_err}"
         user_message = f"Failed to retrieve {weather_type} weather data due to an HTTP error ({status_code})."
         match status_code:
@@ -79,7 +79,7 @@ def _fetch_weather_api(
         }
 
 
-def get_weather(city: str, day_offset: int = 0) -> dict:
+def get_weather(city: str, day_offset: int = 0) -> dict[str, Any]:
     """Retrieves the current weather or a forecast for a specified city using OpenWeatherMap API.
     Args:
         city (str): The name of the city for which to retrieve the weather.
@@ -212,13 +212,8 @@ async def get_chat_history_impl(chat_id: int) -> str:
         return "No history found for this chat yet."
 
     formatted_history = "Recent chat history (most recent last):\n"
-    for turn_content_obj in history_turns[
-        -10:
-    ]:  # turn_content_obj is a genai_types.Content object
-        role = getattr(turn_content_obj, "role", "unknown")
-
-        # The 'parts' attribute of a Content object is already a list of Part objects.
-        # No need to access a non-existent 'parts_json' attribute or re-parse JSON here.
+    for turn_content_obj in history_turns[-10:]:
+        role = getattr(turn_content_obj, "role", "unknown") or "unknown"
         actual_parts: list[genai_types.Part] | None = getattr(
             turn_content_obj, "parts", None
         )
@@ -228,13 +223,10 @@ async def get_chat_history_impl(chat_id: int) -> str:
 
         current_turn_texts = []
         if actual_parts:
-            for i, part_object in enumerate(
-                actual_parts
-            ):  # part_object is genai_types.Part
+            for i, part_object in enumerate(actual_parts):
                 logger.debug(f"Processing Part {i} from Content object: {part_object}")
                 if hasattr(part_object, "text") and part_object.text is not None:
                     current_turn_texts.append(str(part_object.text))
-                # Add handling for other part types if necessary for display, e.g., function calls
                 elif (
                     hasattr(part_object, "function_call")
                     and part_object.function_call is not None
@@ -243,7 +235,6 @@ async def get_chat_history_impl(chat_id: int) -> str:
                     current_turn_texts.append(
                         f"[Function Call: {fc.name} with args {fc.args}]"
                     )
-                # Not typically displaying function_response directly as text, but could be added
                 else:
                     logger.debug(
                         f"Part item {i} has no displayable text or recognized function call."
@@ -319,8 +310,10 @@ def _convert_raw_to_wav_bytes_for_tools(
     return header + audio_data
 
 
-async def generate_speech_impl(text_to_speak: str, api_key_for_tool: str) -> dict:
-    """Generates speech from text using Google's Text-to-Speech API."""
+async def generate_speech_impl(
+    text_to_speak: str, api_key_for_tool: str
+) -> dict[str, Any]:
+    """Generates speech from text using Google's Gemini Text-to-Speech API."""
     logger.info(
         f"Tool: generate_speech_impl called for text: '{text_to_speak[:50]}...'"
     )
@@ -334,94 +327,50 @@ async def generate_speech_impl(text_to_speak: str, api_key_for_tool: str) -> dic
             "message": "TTS service not configured (API key missing).",
         }
 
-    def _generate_speech_sync(text_input: str, current_api_key: str) -> dict:
-        try:
-            qualified_tts_model_name = VOICE_MODEL
-            logger.info(
-                f"TTS Sync: Requesting TTS from model: {qualified_tts_model_name} using API key ending ...{current_api_key[-4:] if current_api_key and len(current_api_key) > 3 else 'N/A'}"
-            )
-            sync_client = genai.Client(api_key=current_api_key)
-            sync_contents = text_input
-            speech_generation_config = genai_types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=genai_types.SpeechConfig(
-                    voice_config=genai_types.VoiceConfig(
-                        prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
-                            voice_name="Kore"
-                        )
-                    )
-                ),
-            )
-            sync_response = sync_client.models.generate_content(
-                model=qualified_tts_model_name,
-                contents=sync_contents,
-                config=speech_generation_config,
-            )
-            if (
-                sync_response.candidates
-                and sync_response.candidates[0].content
-                and sync_response.candidates[0].content.parts
-                and sync_response.candidates[0].content.parts[0].inline_data
-            ):
-                inline_data = sync_response.candidates[0].content.parts[0].inline_data
-                if not inline_data.data:
-                    logger.warning("TTS Sync: Model returned empty audio payload.")
-                    return {
-                        "status": "error",
-                        "message": "TTS Sync: Failed to generate audio: Model returned an empty audio payload.",
-                    }
-                logger.info(
-                    f"TTS Sync: Successfully received audio data. MIME: {inline_data.mime_type}, Length: {len(inline_data.data)} bytes."
-                )
-                return {
-                    "status": "success",
-                    "audio_data": inline_data.data,
-                    "mime_type": inline_data.mime_type,
-                }
-            elif (
-                sync_response.prompt_feedback
-                and sync_response.prompt_feedback.block_reason
-            ):
-                logger.warning(
-                    f"TTS Sync: Blocked. Reason: {sync_response.prompt_feedback.block_reason_message}"
-                )
-                return {
-                    "status": "error",
-                    "message": f"TTS Sync: Could not generate audio due to safety filters: {sync_response.prompt_feedback.block_reason_message}",
-                }
-            else:
-                logger.warning(
-                    "TTS Sync: Failed: No audio data or unexpected structure."
-                )
-                return {
-                    "status": "error",
-                    "message": "TTS Sync: Failed to generate audio: Model did not return audio data as expected.",
-                }
-        except Exception as e_sync:
-            logger.error(f"TTS Sync: Error: {e_sync}", exc_info=True)
-            err_code = getattr(e_sync, "code", "N/A")
-            return {
-                "status": "error",
-                "message": f"TTS Sync: API Error ({err_code}) - {str(e_sync.message)[:100] if hasattr(e_sync, 'message') else str(e_sync)[:100]}",
-            }
-
     try:
-        loop = asyncio.get_event_loop()
-        sync_result = await loop.run_in_executor(
-            None,
-            functools.partial(_generate_speech_sync, text_to_speak, api_key_for_tool),
+        qualified_tts_model_name = VOICE_MODEL
+        logger.info(
+            f"TTS Async: Requesting TTS from model: {qualified_tts_model_name} using API key ending ...{api_key_for_tool[-4:] if len(api_key_for_tool) > 3 else 'N/A'}"
         )
-        if sync_result.get("status") == "success":
-            audio_data = sync_result["audio_data"]
-            original_mime_type = sync_result["mime_type"]
+        client = genai.Client(api_key=api_key_for_tool)
+        speech_generation_config = genai_types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=genai_types.SpeechConfig(
+                voice_config=genai_types.VoiceConfig(
+                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
+                        voice_name="Kore"
+                    )
+                )
+            ),
+        )
+        response = await client.aio.models.generate_content(
+            model=qualified_tts_model_name,
+            contents=text_to_speak,
+            config=speech_generation_config,
+        )
+
+        inline_data = None
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts or []:
+                if part.inline_data and part.inline_data.data:
+                    inline_data = part.inline_data
+                    break
+
+        if inline_data and inline_data.data:
+            audio_data = inline_data.data
+            original_mime_type = (
+                inline_data.mime_type or "audio/L16;codec=pcm;rate=24000"
+            )
+            logger.info(
+                f"TTS Async: Successfully received audio data. MIME: {original_mime_type}, Length: {len(audio_data)} bytes."
+            )
             processed_audio_data, final_mime_type_for_response, file_extension = (
                 audio_data,
                 original_mime_type,
                 ".audio",
             )
             if (
-                original_mime_type
-                and original_mime_type.lower().startswith("audio/l")
+                original_mime_type.lower().startswith("audio/l")
                 and "codec=pcm" in original_mime_type.lower()
             ):
                 params = _parse_audio_mime_type_params_for_tools(original_mime_type)
@@ -474,14 +423,33 @@ async def generate_speech_impl(text_to_speak: str, api_key_for_tool: str) -> dic
                     "status": "error",
                     "message": f"Failed to save audio: {str(e_io)}",
                 }
-        return sync_result
+        elif response.prompt_feedback and response.prompt_feedback.block_reason:
+            logger.warning(
+                f"TTS Async: Blocked. Reason: {response.prompt_feedback.block_reason_message}"
+            )
+            return {
+                "status": "error",
+                "message": f"Could not generate audio due to safety filters: {response.prompt_feedback.block_reason_message}",
+            }
+        else:
+            logger.warning("TTS Async: Failed: No audio data or unexpected structure.")
+            return {
+                "status": "error",
+                "message": "Failed to generate audio: Model did not return audio data as expected.",
+            }
     except Exception as e_async:
-        logger.error(f"TTS Tool async wrapper error: {e_async}", exc_info=True)
-        return {"status": "error", "message": f"TTS async error: {str(e_async)[:100]}"}
+        logger.error(f"TTS Tool error: {e_async}", exc_info=True)
+        err_code = getattr(e_async, "code", "N/A")
+        msg = (
+            str(e_async.message)[:100]
+            if hasattr(e_async, "message") and e_async.message
+            else str(e_async)[:100]
+        )
+        return {"status": "error", "message": f"TTS API Error ({err_code}) - {msg}"}
 
 
-async def generate_image_impl(prompt: str, api_key_for_tool: str) -> dict:
-    """Generates an image based on a prompt using Google's Imagen API."""
+async def generate_image_impl(prompt: str, api_key_for_tool: str) -> dict[str, Any]:
+    """Generates an image based on a prompt using Google's Gemini Image or Imagen API."""
     logger.info(f"Tool: generate_image_impl called for prompt: '{prompt[:100]}...'")
     if not prompt.strip():
         return {
@@ -490,110 +458,110 @@ async def generate_image_impl(prompt: str, api_key_for_tool: str) -> dict:
         }
 
     if not api_key_for_tool:
-        logger.error("Imagen Tool: No API key provided to generate_image_impl.")
+        logger.error("Image Tool: No API key provided to generate_image_impl.")
         return {
             "status": "error",
             "message": "Image generation service not configured: No API key provided.",
         }
 
-    logger.info(
-        f"IMAGEN_TOOL: Using API key ending ...{api_key_for_tool[-4:] if api_key_for_tool and len(api_key_for_tool) > 3 else 'N/A'}"
-    )
+    try:
+        image_model_name = IMAGE_GENERATION_MODEL
+        logger.info(
+            f"IMAGE_TOOL: Requesting image from {image_model_name} using API key ending ...{api_key_for_tool[-4:] if len(api_key_for_tool) > 3 else 'N/A'}"
+        )
+        client = genai.Client(api_key=api_key_for_tool)
 
-    def _generate_image_sync(image_prompt: str, current_api_key: str) -> dict:
-        try:
-            imagen_model_name = IMAGE_GENERATION_MODEL
-            logger.info(
-                f"Imagen Sync: Requesting image from {imagen_model_name} using API key ending ...{current_api_key[-4:] if current_api_key and len(current_api_key) > 3 else 'N/A'}"
-            )
-            sync_client = genai.Client(api_key=current_api_key)
+        image_bytes: bytes | None = None
+        mime_type: str = "image/png"
+
+        if "imagen" in image_model_name.lower():
             config = genai_types.GenerateImagesConfig(
                 number_of_images=1, output_mime_type="image/jpeg", aspect_ratio="1:1"
-            )  # Request JPEG
-            result = sync_client.models.generate_images(
-                model=imagen_model_name, prompt=image_prompt, config=config
             )
-
+            result = await client.aio.models.generate_images(
+                model=image_model_name, prompt=prompt, config=config
+            )
             if (
                 result.generated_images
                 and result.generated_images[0].image
                 and result.generated_images[0].image.image_bytes
             ):
                 image_bytes = result.generated_images[0].image.image_bytes
-                logger.info(
-                    f"Imagen Sync: Received image data, length: {len(image_bytes)} bytes."
-                )
-                base_name = sanitize_filename(image_prompt, max_length=30)
-                filename = f"{base_name}_{int(time.time()*1000)}.jpg"
-                file_path = os.path.join(tempfile.gettempdir(), filename)
-                try:
-                    with open(file_path, "wb") as f:
-                        f.write(image_bytes)
-                    return {
-                        "status": "success",
-                        "file_path": file_path,
-                        "mime_type": "image/jpeg",
-                    }
-                except IOError as e_io:
-                    return {
-                        "status": "error",
-                        "message": f"Failed to save image: {str(e_io)}",
-                    }
-            elif (
-                hasattr(result, "prompt_feedback")
-                and result.prompt_feedback
-                and result.prompt_feedback.block_reason
+                mime_type = "image/jpeg"
+        else:
+            # Gemini native image generation models (e.g., gemini-2.5-flash-image, gemini-3.1-flash-image, gemini-3-pro-image)
+            gen_config = genai_types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"]
+            )
+            response = await client.aio.models.generate_content(
+                model=image_model_name, contents=prompt, config=gen_config
+            )
+            if response.candidates and response.candidates[0].content:
+                for part in response.candidates[0].content.parts or []:
+                    if part.inline_data and part.inline_data.data:
+                        image_bytes = part.inline_data.data
+                        mime_type = part.inline_data.mime_type or "image/png"
+                        break
+            if (
+                not image_bytes
+                and response.prompt_feedback
+                and response.prompt_feedback.block_reason
             ):
                 reason = (
-                    result.prompt_feedback.block_reason_message
-                    or result.prompt_feedback.block_reason
+                    response.prompt_feedback.block_reason_message
+                    or response.prompt_feedback.block_reason
                 )
-                logger.warning(f"Imagen Sync: Blocked. Reason: {reason}")
                 return {
                     "status": "error",
                     "message": f"Could not generate image due to safety filters: {reason}",
                 }
-            else:
-                logger.warning("Imagen Sync: Failed: No image data or block reason.")
+
+        if image_bytes:
+            logger.info(
+                f"Image Tool: Received image data, length: {len(image_bytes)} bytes, mime_type: {mime_type}."
+            )
+            ext = ".jpg" if "jpeg" in mime_type else ".png"
+            base_name = sanitize_filename(prompt, max_length=30)
+            filename = f"{base_name}_{int(time.time()*1000)}{ext}"
+            file_path = os.path.join(tempfile.gettempdir(), filename)
+            try:
+                with open(file_path, "wb") as f:
+                    f.write(image_bytes)
+                return {
+                    "status": "success",
+                    "file_path": file_path,
+                    "mime_type": mime_type,
+                }
+            except IOError as e_io:
                 return {
                     "status": "error",
-                    "message": "Image generation failed: Model did not return image data or reason.",
+                    "message": f"Failed to save image: {str(e_io)}",
                 }
-        except Exception as e_sync:
-            logger.error(f"Imagen Sync: Error: {e_sync}", exc_info=True)
-            err_code = getattr(e_sync, "code", "N/A")
-            full_error_message = (
-                str(e_sync.message)
-                if hasattr(e_sync, "message") and e_sync.message
-                else str(e_sync)
-            )
-            logger.error(
-                f"Imagen Sync: Full error details: Code: {err_code}, Message: {full_error_message}"
-            )
-            return {
-                "status": "error",
-                "message": f"Image generation failed with an API error. Details: {full_error_message}",
-                "raw_error_details": {
-                    "code": err_code,
-                    "status_from_exception": (
-                        getattr(e_sync, "status", "N/A")
-                        if isinstance(e_sync, genai_errors.APIError)
-                        else "N/A"
-                    ),
-                    "full_message": full_error_message,
-                },
-            }
 
-    try:
-        loop = asyncio.get_event_loop()
-        sync_result = await loop.run_in_executor(
-            None,
-            functools.partial(_generate_image_sync, prompt, api_key_for_tool),
-        )
-        return sync_result
-    except Exception as e_async:
-        logger.error(f"Imagen Tool async wrapper error: {e_async}", exc_info=True)
+        logger.warning("Image Tool: Failed: No image data returned.")
         return {
             "status": "error",
-            "message": f"Imagen async error: {str(e_async)[:100]}",
+            "message": "Image generation failed: Model did not return image data.",
+        }
+
+    except Exception as e_img:
+        logger.error(f"Image Tool Error: {e_img}", exc_info=True)
+        err_code = getattr(e_img, "code", "N/A")
+        full_error_message = (
+            str(e_img.message)
+            if hasattr(e_img, "message") and e_img.message
+            else str(e_img)
+        )
+        return {
+            "status": "error",
+            "message": f"Image generation failed with an API error. Details: {full_error_message}",
+            "raw_error_details": {
+                "code": err_code,
+                "status_from_exception": (
+                    getattr(e_img, "status", "N/A")
+                    if isinstance(e_img, genai_errors.APIError)
+                    else "N/A"
+                ),
+                "full_message": full_error_message,
+            },
         }

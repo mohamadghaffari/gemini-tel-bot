@@ -1,0 +1,19 @@
+[Unit]
+Description=Gemini Telegram Bot (Polling Mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/gemini-tel-bot
+EnvironmentFile=/opt/gemini-tel-bot/.env
+Environment="BOT_MODE=polling"
+ExecStart=/opt/gemini-tel-bot/.venv/bin/run-gemini-bot
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

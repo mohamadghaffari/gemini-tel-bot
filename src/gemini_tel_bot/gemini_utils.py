@@ -1,6 +1,5 @@
 import logging
 from time import time
-from typing import Any
 
 from google import genai
 from google.api_core.exceptions import ClientError as APICoreClientError
@@ -8,26 +7,69 @@ from google.api_core.exceptions import PermissionDenied
 from google.genai.pagers import AsyncPager
 from google.genai.types import Model as GenAiModel
 
-from .config import GOOGLE_API_KEY
+from .config import DEFAULT_MODEL_NAME, GOOGLE_API_KEY
 from .custom_types import ModelInfo, UserSettings
 
 logger = logging.getLogger(__name__)
 
 COMMON_MODELS_TO_SHOW = [
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.5-pro-preview-05-06",
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
-    "gemini-1.5-pro",
-    "gemini-1.0-pro",
-    # "gemma-3-1b-it",
-    # "gemma-3-4b-it",
-    # "gemma-3-12b-it",
-    # "gemma-3-27b-it",
-    # "gemma-3n-e4b-it",
+    "gemini-4-argon",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-pro-latest",
+    "gemma-4-31b-it",
+    "gemma-4-26b-a4b-it",
 ]
+
+EXCLUDED_MODEL_SUBSTRINGS = (
+    "embedding",
+    "aqa",
+    "tts",
+    "image",
+    "imagen",
+    "transcribe",
+    "robotics",
+    "computer-use",
+    "customtools",
+    "live",
+    "lyria",
+    "veo",
+    "vision",
+)
+
+RETIRED_MODEL_PREFIXES = (
+    "gemini-1.0",
+    "gemini-1.5",
+    "gemini-2.0",
+    "gemini-2.5",
+    "gemini-pro-vision",
+    "gemma-3-",
+)
+
+
+def normalize_or_fallback_model_name(model_name: str | None) -> str:
+    """Normalizes a model name and falls back to DEFAULT_MODEL_NAME if retired."""
+    if not model_name:
+        return DEFAULT_MODEL_NAME
+    base_name = model_name.replace("models/", "").strip()
+    if not base_name or any(
+        base_name.startswith(prefix) for prefix in RETIRED_MODEL_PREFIXES
+    ):
+        logger.info(
+            f"Model '{model_name}' is retired or empty; falling back to '{DEFAULT_MODEL_NAME}'."
+        )
+        return DEFAULT_MODEL_NAME
+    return model_name
+
 
 # Cache for genai.Client instances. Key is the API key string.
 # None value means client creation failed for that key and shouldn't be retried immediately.
@@ -135,29 +177,46 @@ async def fetch_available_models_for_user(
         generative_models_info: list[ModelInfo] = []
         logger.debug("Filtering raw models:")
         for m in models_list_raw:
-            model_name = getattr(
-                m, "name", ""
-            )  # Full name e.g., "models/gemini-1.5-pro-latest"
-            description = getattr(m, "description", "")
+            model_name = getattr(m, "name", "") or ""
+            description = getattr(m, "description", "") or ""
 
-            # Extract the base model name (e.g., "gemini-1.5-pro-latest")
+            # Extract the base model name (e.g., "gemini-3.8-flash")
             base_model_name = model_name.split("/")[-1]
+            lower_name = base_model_name.lower()
 
-            # Specific exclusions based on keywords in the full model name
-            is_embedding = "embedding" in model_name.lower()
-            is_aqa = "aqa" in model_name.lower()  # Attributed Question Answering models
-            is_tuned = model_name.startswith("tunedModels/")  # User-tuned models
+            is_tuned = model_name.startswith("tunedModels/")
+            is_excluded = any(sub in lower_name for sub in EXCLUDED_MODEL_SUBSTRINGS)
+            is_retired = any(
+                base_model_name.startswith(prefix) for prefix in RETIRED_MODEL_PREFIXES
+            )
 
-            # Check if the base model name is in our curated list and not an excluded type
+            actions = getattr(m, "supported_actions", None)
+            action_strings: list[str] = []
+            if actions:
+                try:
+                    action_strings = [str(a) for a in actions if str(a)]
+                except Exception as e:
+                    logger.error(
+                        f"Failed to convert supported_actions to strings for {model_name}: {e}"
+                    )
+                    action_strings = ["<Error converting actions>"]
+
+            supports_generate = (
+                not action_strings or "generateContent" in action_strings
+            )
+            is_gemini_or_gemma = lower_name.startswith(("gemini-", "gemma-"))
+
             if (
                 model_name
-                and base_model_name in COMMON_MODELS_TO_SHOW
-                and not is_embedding
-                and not is_aqa
                 and not is_tuned
+                and not is_excluded
+                and (
+                    base_model_name in COMMON_MODELS_TO_SHOW
+                    or (is_gemini_or_gemma and not is_retired and supports_generate)
+                )
             ):
                 logger.debug(
-                    f"  -> Keeping model from curated list: {model_name} (base: {base_model_name})"
+                    f"  -> Keeping model: {model_name} (base: {base_model_name})"
                 )
 
                 model_info: ModelInfo = {
@@ -165,20 +224,34 @@ async def fetch_available_models_for_user(
                     "description": description,
                     "input_token_limit": getattr(m, "input_token_limit", None),
                     "output_token_limit": getattr(m, "output_token_limit", None),
-                    "supported_actions": [],  # Default to empty list
+                    "supported_actions": action_strings,
                 }
-                actions = getattr(m, "supported_actions", None)
-                if actions:
-                    try:
-                        action_strings = [str(a) for a in actions if str(a)]
-                        model_info["supported_actions"] = action_strings
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to convert supported_actions to strings for {model_name}: {e}"
-                        )
-                        model_info["supported_actions"] = ["<Error converting actions>"]
-
                 generative_models_info.append(model_info)
+
+        if not generative_models_info:
+            raw_names = [getattr(m, "name", "") for m in models_list_raw]
+            logger.warning(
+                f"No models matched filter from {len(models_list_raw)} raw models ({raw_names[:10]}). Using fallback curated list."
+            )
+            for fallback_name in [
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
+                "gemini-3.5-flash",
+                "gemini-3.1-pro-preview",
+                "gemini-3-flash-preview",
+                "gemini-4-argon",
+                "gemini-flash-latest",
+                "gemini-pro-latest",
+            ]:
+                generative_models_info.append(
+                    {
+                        "name": f"models/{fallback_name}",
+                        "description": f"Google {fallback_name}",
+                        "input_token_limit": 1048576,
+                        "output_token_limit": 65536,
+                        "supported_actions": ["generateContent"],
+                    }
+                )
 
         generative_models_info.sort(key=lambda x: x["name"])
 

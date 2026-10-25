@@ -16,18 +16,18 @@ An advanced, **agentic Telegram bot** built with Python and the **Google Agent D
 
 ## ✨ Core Features & Capabilities
 
-*   **🤖 Agentic AI Core (Google ADK):** Built with the Google Agent Development Kit, enabling sophisticated tool use, function calling, and an extensible agent-based architecture. This allows for advanced capabilities like web content retrieval, native speech generation, and image creation.
-*   **🌐 Advanced Gemini Model Integration:** Interact with the latest Google Gemini models (e.g., `gemini-2.5-pro-preview-05-06`, `gemini-1.5-pro-latest`, `gemini-1.5-flash-latest`, and other models supporting advanced tooling).
+*   **🤖 Agentic AI Core (Google ADK 2.x):** Built with the Google Agent Development Kit (`google-adk`), enabling sophisticated tool use, function calling, SSE streaming, and an extensible agent-based architecture.
+*   **🌐 Advanced Gemini Model Integration:** Interact with the latest Google Gemini models (`gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-4-argon`, `gemini-3.1-pro-preview`, `gemma-4-31b-it`, and more). Automatically falls back from retired 1.x / 2.x models to `gemini-3.8-flash`.
+*   **⚡ Real-Time Telegram Message Streaming (`sendMessageDraft`):** Streams partial responses live into Telegram using the Bot API's native `sendMessageDraft` endpoint and ADK's `StreamingMode.SSE`, complete with Telegram's native `"Thinking…"` indicator before the final formatted message is persisted.
 *   **🛠️ Extensible Tool & Agent System:** Designed for easy addition of new custom tools and agents, allowing developers to tailor the bot's capabilities for diverse applications.
 *   **📸 Multimodal Input:** Send text messages, photos with captions, and URLs to interact with the bot.
 *   **💾 Conversation History:** Maintains context by remembering previous turns, including text, photo captions/placeholders, and outcomes of tool usage.
 *   **🔑 User API Keys & ⚙️ Model Selection:** Users can manage their own Google Gemini API keys and select preferred models via commands.
-*   **🚀 Flexible Deployment:** Supports both **Webhook** mode (recommended for production) and **Long Polling** mode (for development).
-*   **💅 Rich Formatting (via [telegramify-markdown](https://github.com/sudoskys/telegramify-markdown/)):**
-    *   Properly formats Markdown in AI responses for Telegram (`MarkdownV2`).
-    *   Sends code blocks as downloadable `.txt` files.
+*   **🚀 Flexible Deployment:** Supports both **Long Polling** mode (great for dedicated Ubuntu VPS servers or local development) and **Webhook** mode (via FastAPI/Uvicorn).
+*   **💅 Rich Formatting (via [telegramify-markdown 1.4+](https://github.com/sudoskys/telegramify-markdown/)):**
+    *   Entity-based formatting (`to_telebot_entities`) with `MarkdownV2` fallback.
+    *   Sends large code blocks and tables as downloadable files.
     *   Renders Mermaid diagrams directly in chat.
-    *   Supports Latex visualization (escaped) and expanded citations.
 
 ### 🧰 Default Tools Showcase (Powered by ADK)
 The bot comes with a set of pre-configured tools, demonstrating its agentic capabilities:
@@ -99,7 +99,7 @@ This bot requires two tables in your Supabase project: `user_settings` and `chat
     CREATE TABLE IF NOT EXISTS public.user_settings (
       chat_id BIGINT PRIMARY KEY,
       gemini_api_key TEXT NULL,
-      selected_model TEXT NOT NULL DEFAULT 'models/gemini-1.5-flash-latest',
+      selected_model TEXT NOT NULL DEFAULT 'gemini-3.8-flash',
       message_count INTEGER NOT NULL DEFAULT 0
     );
 
@@ -194,6 +194,44 @@ To run the bot in polling mode for local development, use the following command:
 uv run run-gemini-bot
 ```
 The bot will start polling Telegram for updates using your *local testing* bot token. You can interact with this test bot instance. Use `Ctrl+C` to stop.
+
+### Ubuntu Server Deployment (systemd Service)
+
+To run the bot as a 24/7 background service on an Ubuntu VPS server:
+
+1. **Point your DNS record to your server IP (for Webhook Mode):**
+   * Create an **A record** in your DNS provider (e.g., Cloudflare / Namecheap):
+     * **Name / Host**: `bot` (for `bot.example.com`) or `@` (for `example.com`)
+     * **Value / IPv4**: `<YOUR_SERVER_IP>`
+2. **Copy the project (including your `.env`) to your Ubuntu server:**
+   ```bash
+   rsync -avz --exclude '.venv' --exclude '__pycache__' --exclude '.git' \
+     ./ root@<YOUR_SERVER_IP>:/opt/gemini-tel-bot/
+   ```
+3. **SSH into the server and run the setup script:**
+   ```bash
+   ssh root@<YOUR_SERVER_IP>
+   cd /opt/gemini-tel-bot
+   chmod +x deploy/setup_ubuntu.sh
+
+   # Option A: Webhook Mode with automatic HTTPS via Caddy (Recommended with domain)
+   DOMAIN=bot.example.com ./deploy/setup_ubuntu.sh --webhook
+
+   # Option B: Polling Mode (No domain/SSL required)
+   ./deploy/setup_ubuntu.sh
+   ```
+4. **Manage the service:**
+   ```bash
+   # If running Webhook Mode:
+   sudo systemctl status gemini-tel-bot-webhook
+   sudo journalctl -u gemini-tel-bot-webhook -f
+   sudo systemctl restart gemini-tel-bot-webhook
+
+   # If running Polling Mode:
+   sudo systemctl status gemini-tel-bot
+   sudo journalctl -u gemini-tel-bot -f
+   sudo systemctl restart gemini-tel-bot
+   ```
 
 ### Production Deployment (Webhook Mode - e.g., Railway)
 

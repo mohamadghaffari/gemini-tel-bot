@@ -14,6 +14,7 @@ from .db import (
 from .gemini_utils import fetch_available_models_for_user
 from .helpers import check_ai_client, check_db_and_settings, split_and_send_message
 from .processing import (
+    clear_adk_session,
     process_photo_message,
     process_text_message,
     process_user_message,
@@ -87,6 +88,7 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
             return
 
         # Attempt to clear history
+        clear_adk_session(chat_id)
         if await clear_history_in_db(chat_id):
             try:
                 await bot_for_reply.reply_to(message, "Chat history cleared.")
@@ -203,6 +205,7 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
             model_name=user_settings.get("selected_model", DEFAULT_MODEL_NAME),
             message_count=0,
         ):
+            clear_adk_session(chat_id)
             await clear_history_in_db(chat_id)
             reply_text = "Cleared your custom API key\\. Using the bot's default key now\\. Your chat history has been reset\\."
             log_level = logging.INFO
@@ -410,6 +413,8 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
         call: telebot_types.CallbackQuery, bot_for_reply: AsyncTeleBot
     ) -> None:
         """Handles the callback when a user selects a model from the inline keyboard."""
+        if call.message is None:
+            return
         chat_id = call.message.chat.id
         message_id = call.message.message_id
 
@@ -494,7 +499,7 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
 
         current_model = user_settings.get("selected_model", DEFAULT_MODEL_NAME)
         if current_model == model_name_from_callback:
-            response_text = f"Model is already set to `{model_name_from_callback}`\."
+            response_text = f"Model is already set to `{model_name_from_callback}`\\."
             logger.info(f"User {chat_id} model selection: model already set.")
         else:
             current_api_key = user_settings.get("gemini_api_key")
@@ -504,13 +509,14 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
                 model_name=model_name_from_callback,
                 message_count=0,  # Reset count
             ):
+                clear_adk_session(chat_id)
                 await clear_history_in_db(chat_id)  # Clear history on model change
-                response_text = f"Model set to `{model_name_from_callback}` successfully\! Your chat history has been reset\."
+                response_text = f"Model set to `{model_name_from_callback}` successfully\\! Your chat history has been reset\\."
                 logger.info(
                     f"User {chat_id} set model to {model_name_from_callback} completed via callback."
                 )
             else:
-                response_text = "Failed to set the model in the database\."
+                response_text = "Failed to set the model in the database\\."
                 logger.error(
                     f"Callback model selection failed for {chat_id}: Failed to save settings."
                 )
@@ -554,7 +560,7 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
                 key_masked = "(empty key set)"
             api_key_status = f"Using your custom API key: `{key_masked}`"
         elif not GOOGLE_API_KEY:
-            api_key_status = "No API key available\. Bot's default is missing, and you haven't set your own.\nPlease use /set_api_key to provide your key."
+            api_key_status = "No API key available\\. Bot's default is missing, and you haven't set your own.\nPlease use /set_api_key to provide your key."
 
         current_model = user_settings.get("selected_model", DEFAULT_MODEL_NAME)
         current_message_count = user_settings.get("message_count", 0)
@@ -566,11 +572,9 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
         )
 
         if custom_api_key is None and DEFAULT_KEY_MESSAGE_LIMIT > 0:
-            settings_text += f"Messages Used \(Default Key\): {current_message_count} / {DEFAULT_KEY_MESSAGE_LIMIT}\n"
+            settings_text += f"Messages Used \\(Default Key\\): {current_message_count} / {DEFAULT_KEY_MESSAGE_LIMIT}\n"
             if current_message_count >= DEFAULT_KEY_MESSAGE_LIMIT:
-                settings_text += (
-                    "  \(Limit reached. Use /set_api_key for unlimited messages\.\)\n"
-                )
+                settings_text += "  \\(Limit reached. Use /set_api_key for unlimited messages\\.\\)\n"
 
         try:
             await bot_for_reply.reply_to(
@@ -728,6 +732,7 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
                 model_name=current_model,
                 message_count=0,
             ):
+                clear_adk_session(chat_id)
                 await clear_history_in_db(chat_id)
                 reply_text = (
                     f"API key set successfully \\(ending with `...{api_key_input[-4:]}`\\)\\. "
@@ -776,7 +781,6 @@ def register_handlers(bot_instance: AsyncTeleBot) -> None:
     UNSUPPORTED_CONTENT_TYPES = [
         "audio",
         "document",
-        "animation",
         "video",
         "voice",
         "contact",
