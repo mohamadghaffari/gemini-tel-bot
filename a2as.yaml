@@ -1,0 +1,658 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: mohamadghaffari/gemini-tel-bot
+    source: https://github.com/mohamadghaffari/gemini-tel-bot
+    branch: main
+    commit: "fe62a21a"
+    scope: [src/gemini_tel_bot/multi_tool_agent/agent.py, src/gemini_tel_bot/multi_tool_agent/prompt.py, src/gemini_tel_bot/multi_tool_agent/tools.py,
+      src/gemini_tel_bot/processing.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T16:39:04Z'
+    url: https://a2as.org/certified/agents/mohamadghaffari/gemini-tel-bot
+  signatures:
+    digest: sha256:bEGhh7zrnDy0yNbaLktAIYzYDDLXx6exvXoMD9Dq9Vg
+    key: ed25519:x5o3AMcMxVBEsgCxNJS4CFj9wX-NCVIPjywZc75CH0I
+    sig: ed25519:J3fE8Ns8tLhdrYMdIiBgRWz-dhGGUQ7oJpcmV5Ye812rP2gnyLa6gEkU1MReVT0k1VO2jcbSh25CKssSH5wTAg
+
+agents:
+  agent_instance.1:
+    type: instance
+    models: [self.gemini_llm_for_adk]
+    tools: [self._tools]
+    params:
+      name: self.root_agent.name
+      description: self.root_agent.description
+      instruction: [graph TD; A-->B;]
+      class: TelegramBotAgent
+      instance: agent.TelegramBotAgent.root_agent
+  agent_instance.root_agent:
+    type: instance
+    models: [self.gemini_llm_for_adk]
+    tools: [self._tools]
+    params:
+      name: TelegramBotAgent_Chat{self.chat_id}
+      description: A conversational AI assistant for Telegram chats that can use tools for specific tasks like getting time,
+        weather, chat history, generating speech, or creating images.
+      instruction: [graph TD; A-->B;]
+      class: TelegramBotAgent
+
+models:
+  self.gemini_llm_for_adk:
+    type: literal
+    agents: [agent_instance.root_agent, agent_instance.1]
+
+tools:
+  self._tools:
+    type: function
+    agents: [agent_instance.root_agent, agent_instance.1]
+    params:
+      dynamic: "True"
+
+imports:
+  agent: agent
+  Agent: google.adk.agents.Agent
+  AIInteractionContext: custom_types.AIInteractionContext
+  Any: typing.Any
+  api: api
+  APICoreClientError: google.api_core.exceptions.ClientError
+  AsyncClient: supabase.AsyncClient
+  AsyncClientOptions: supabase.lib.client_options.AsyncClientOptions
+  asyncio: asyncio
+  AsyncPager: google.genai.pagers.AsyncPager
+  AsyncTeleBot: telebot.async_telebot.AsyncTeleBot
+  bot: bot
+  Callable: typing.Callable
+  check_ai_client: helpers.check_ai_client
+  check_db_and_settings: helpers.check_db_and_settings
+  check_message_limit_and_increment: helpers.check_message_limit_and_increment
+  clear_history_in_db: db.clear_history_in_db
+  cli: cli
+  ClientError: google.api_core.exceptions.ClientError
+  config: config
+  ContentTypes: telegramify_markdown.type.ContentTypes
+  Coroutine: typing.Coroutine
+  create_async_client: supabase.create_async_client
+  datetime: datetime
+  db: db
+  DEFAULT_KEY_MESSAGE_LIMIT: config.DEFAULT_KEY_MESSAGE_LIMIT
+  DEFAULT_MODEL_NAME: config.DEFAULT_MODEL_NAME
+  fetch_available_models_for_user: gemini_utils.fetch_available_models_for_user
+  FileInterpreter: telegramify_markdown.interpreters.FileInterpreter
+  functools: functools
+  Gemini: google.adk.models.google_llm.Gemini
+  gemini_utils: gemini_utils
+  genai: google.genai
+  genai_client: google.genai.client
+  genai_errors: google.genai.errors
+  genai_types: google.genai.types
+  GenAIClient: google.genai.Client
+  GenAiModel: google.genai.types.Model
+  generate_image_impl: tools.generate_image_impl
+  generate_speech_impl: tools.generate_speech_impl
+  get_chat_history_impl: tools.get_chat_history_impl
+  get_current_time: tools.get_current_time
+  get_history_from_db: db.get_history_from_db
+  get_or_create_agent: multi_tool_agent.agent.get_or_create_agent
+  get_runtime_config: telegramify_markdown.customize.get_runtime_config
+  get_supabase_client: db.get_supabase_client
+  get_user_client: gemini_utils.get_user_client
+  get_user_settings_from_db: db.get_user_settings_from_db
+  get_weather: tools.get_weather
+  GOOGLE_API_KEY: config.GOOGLE_API_KEY
+  GoogleAPIError: google.api_core.exceptions.GoogleAPIError
+  handlers: handlers
+  helpers: helpers
+  HistoryTurn: custom_types.HistoryTurn
+  IMAGE_GENERATION_MODEL: config.IMAGE_GENERATION_MODEL
+  InMemorySessionService: google.adk.sessions.InMemorySessionService
+  InterpreterChain: telegramify_markdown.interpreters.InterpreterChain
+  json: json
+  Literal: typing.Literal
+  load_dotenv: dotenv.load_dotenv
+  LOADING_ANIMATION_FILE_ID: config.LOADING_ANIMATION_FILE_ID
+  logging: logging
+  MAX_HISTORY_LENGTH_TURNS: config.MAX_HISTORY_LENGTH_TURNS
+  MermaidInterpreter: telegramify_markdown.interpreters.MermaidInterpreter
+  mimetypes: mimetypes
+  ModelInfo: custom_types.ModelInfo
+  multi_tool_agent: multi_tool_agent
+  NotFound: google.api_core.exceptions.NotFound
+  OPEN_WEATHER_API_KEY: config.OPEN_WEATHER_API_KEY
+  Optional: typing.Optional
+  os: os
+  PermissionDenied: google.api_core.exceptions.PermissionDenied
+  process_photo_message: processing.process_photo_message
+  process_text_message: processing.process_text_message
+  process_user_message: processing.process_user_message
+  processing: processing
+  prompt: prompt
+  re: re
+  requests: requests
+  ResourceExhausted: google.api_core.exceptions.ResourceExhausted
+  Runner: google.adk.runners.Runner
+  sanitize_filename: helpers.sanitize_filename
+  save_turn_to_db: db.save_turn_to_db
+  save_user_settings_to_db: db.save_user_settings_to_db
+  SerializedFileData: custom_types.SerializedFileData
+  SerializedFunctionCall: custom_types.SerializedFunctionCall
+  SerializedFunctionResponse: custom_types.SerializedFunctionResponse
+  SerializedPart: custom_types.SerializedPart
+  ServerError: google.api_core.exceptions.ServerError
+  split_and_send_message: helpers.split_and_send_message
+  standardize: telegramify_markdown.standardize
+  struct: struct
+  SUPABASE_KEY: config.SUPABASE_KEY
+  SUPABASE_URL: config.SUPABASE_URL
+  telebot_types: telebot.types
+  TELEGRAM_BOT_SYSTEM_INSTRUCTION: prompt.TELEGRAM_BOT_SYSTEM_INSTRUCTION
+  TelegramBotAgent: multi_tool_agent.agent.TelegramBotAgent
+  telegramify_markdown: telegramify_markdown
+  tempfile: tempfile
+  TextInterpreter: telegramify_markdown.interpreters.TextInterpreter
+  time: time
+  tools: tools
+  TypedDict: typing.TypedDict
+  UserSettings: custom_types.UserSettings
+  UserSettingsTableRowUpsert: custom_types.UserSettingsTableRowUpsert
+  VOICE_MODEL: config.VOICE_MODEL
+
+functions:
+  __init__:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.agent
+    args: [self, chat_id, model_name, api_key]
+  _convert_raw_to_wav_bytes_for_tools:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [audio_data, bits_per_sample, sample_rate, num_channels]
+    params:
+      returns: bytes
+  _create_genai_client:
+    type: sync
+    module: src.gemini_tel_bot.gemini_utils
+    args: [api_key]
+  _create_tool_list:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.agent
+    args: [self]
+    params:
+      returns: list
+  _ensure_default_genai_client:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [api_key_to_use]
+  _extract_urls:
+    type: sync
+    module: src.gemini_tel_bot.processing
+    args: [text]
+    params:
+      returns: list[str]
+  _fetch_weather_api:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [base_url, params, city, weather_type]
+    params:
+      returns: dict
+  _finalize_interaction_and_send_response:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [message, bot_instance, chat_id, response_text_from_agent, agent_response_content_for_db, audio_file_to_send, image_file_to_send]
+    params:
+      returns: None
+  _generate_image_sync:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [image_prompt, current_api_key]
+    params:
+      returns: dict
+  _generate_speech_sync:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [text_input, current_api_key]
+    params:
+      returns: dict
+  _handle_ai_interaction:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [message, user_settings, user_input_parts, bot_instance]
+    params:
+      returns: None
+  _handle_ai_interaction_error:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [e, message, bot_instance, chat_id, model_for_agent]
+    params:
+      returns: None
+  _parse_audio_mime_type_params_for_tools:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [mime_type]
+    params:
+      returns: dict
+  _process_adk_events_and_get_response:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [runner, user_id_for_agent, session_id_for_agent, adk_content_for_user_turn, bot_instance, waiting_animation, initial_caption_updated_for_tool,
+      chat_id]
+    params:
+      returns: tuple
+  _process_urls_directly:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [message, bot_instance, active_genai_client, model_for_agent, user_turn_content, waiting_animation, caption_updated_for_tool,
+      chat_id, urls_found]
+    params:
+      returns: tuple
+  _setup_ai_interaction_context:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [message, user_settings, user_input_parts, bot_instance]
+  _try_fix_and_resend_mermaid:
+    type: async
+    module: src.gemini_tel_bot.helpers
+    args: [original_mermaid_code, bot_instance, original_message, interpreter_chain]
+    params:
+      returns: bool
+  animation_message_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  cancel_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  check_ai_client:
+    type: async
+    module: src.gemini_tel_bot.helpers
+    args: [chat_id, message, user_settings, bot_instance]
+  check_db_and_settings:
+    type: async
+    module: src.gemini_tel_bot.helpers
+    args: [chat_id, message, bot_instance]
+  check_message_limit_and_increment:
+    type: async
+    module: src.gemini_tel_bot.helpers
+    args: [chat_id, message, user_settings, bot_instance]
+    params:
+      returns: bool
+  clear_api_key_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  clear_history_in_db:
+    type: async
+    module: src.gemini_tel_bot.db
+    args: [chat_id]
+    params:
+      returns: bool
+  current_settings_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  fetch_available_models_for_user:
+    type: async
+    module: src.gemini_tel_bot.gemini_utils
+    args: [user_settings]
+  generate_image:
+    type: async
+    module: src.gemini_tel_bot.multi_tool_agent.agent
+    args: [self, prompt]
+    params:
+      returns: dict
+  generate_image_impl:
+    type: async
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [prompt, api_key_for_tool]
+    params:
+      returns: dict
+  generate_speech:
+    type: async
+    module: src.gemini_tel_bot.multi_tool_agent.agent
+    args: [self, text_to_speak]
+    params:
+      returns: dict
+  generate_speech_impl:
+    type: async
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [text_to_speak, api_key_for_tool]
+    params:
+      returns: dict
+  get_chat_history:
+    type: async
+    module: src.gemini_tel_bot.multi_tool_agent.agent
+    args: [self]
+    params:
+      returns: str
+  get_chat_history_impl:
+    type: async
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [chat_id]
+    params:
+      returns: str
+  get_current_time:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    params:
+      returns: str
+  get_history_from_db:
+    type: async
+    module: src.gemini_tel_bot.db
+    args: [chat_id]
+  get_or_create_agent:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.agent
+    args: [chat_id, model_name, api_key]
+  get_supabase_client:
+    type: async
+    module: src.gemini_tel_bot.db
+  get_user_client:
+    type: sync
+    module: src.gemini_tel_bot.gemini_utils
+    args: [user_provided_api_key]
+  get_user_settings_from_db:
+    type: async
+    module: src.gemini_tel_bot.db
+    args: [chat_id]
+  get_weather:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.tools
+    args: [city, day_offset]
+    params:
+      returns: dict
+  handle_animation_message:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_cancel_command:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_clear_api_key:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_current_settings:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_list_models:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_model_selection_callback:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [call, bot_for_reply]
+    params:
+      returns: None
+  handle_reset:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_select_model_command:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_set_api_key_command:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_unknown_command:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  handle_unsupported_content:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  list_models_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  model_selection_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [call]
+    params:
+      returns: None
+  photo_message_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  process_photo_message:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [message, bot_instance]
+  process_text_message:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [message, bot_instance]
+  process_user_message:
+    type: async
+    module: src.gemini_tel_bot.processing
+    args: [message, content_processor, bot_instance]
+    params:
+      returns: None
+  quote_label:
+    type: sync
+    module: src.gemini_tel_bot.helpers
+    args: [match]
+    params:
+      returns: str
+  register_handlers:
+    type: sync
+    module: src.gemini_tel_bot.handlers
+    args: [bot_instance]
+    params:
+      returns: None
+  reset_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  sanitize_filename:
+    type: sync
+    module: src.gemini_tel_bot.helpers
+    args: [text, max_length]
+    params:
+      returns: str
+  save_turn_to_db:
+    type: async
+    module: src.gemini_tel_bot.db
+    args: [chat_id, turn_index, role, parts]
+    params:
+      returns: bool
+  save_user_settings_to_db:
+    type: async
+    module: src.gemini_tel_bot.db
+    args: [chat_id, api_key, model_name, message_count]
+    params:
+      returns: bool
+  select_model_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  send_welcome:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message, bot_for_reply]
+    params:
+      returns: None
+  set_api_key_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  split_and_send_message:
+    type: async
+    module: src.gemini_tel_bot.helpers
+    args: [message, text, bot_instance]
+    params:
+      returns: None
+  text_message_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  unknown_command_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  unsupported_content_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+  update_model:
+    type: sync
+    module: src.gemini_tel_bot.multi_tool_agent.agent
+    args: [self, new_model_name, new_api_key]
+    params:
+      returns: bool
+  welcome_wrapper:
+    type: async
+    module: src.gemini_tel_bot.handlers
+    args: [message]
+    params:
+      returns: None
+
+variables:
+  _current_client_api_key_for_default_client:
+    type: env
+  api_key_source_log:
+    type: env
+    params:
+      caller: [__init__]
+  api_key_status:
+    type: env
+    params:
+      caller: [handle_current_settings]
+  BOT_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  BOT_MODE:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  DEFAULT_KEY_MESSAGE_LIMIT:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  DEFAULT_MODEL_NAME:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  GOOGLE_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  LOADING_ANIMATION_FILE_ID:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  MAX_HISTORY_LENGTH_TURNS:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  OPEN_WEATHER_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  SUPABASE_KEY:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+  SUPABASE_URL:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [src.gemini_tel_bot.config]
+
+files:
+  audio_path:
+    type: variable
+    actions: [read, delete]
+    params:
+      caller: [open, os.remove]
+      alias: [audio]
+  file_path:
+    type: variable
+    actions: [write]
+    params:
+      caller: [open]
+      alias: [f]
+  image_path:
+    type: variable
+    actions: [read, delete]
+    params:
+      caller: [open, os.remove]
+      alias: [image_f]
+  temp_file_path:
+    type: variable
+    actions: [write]
+    params:
+      caller: [open]
+      alias: [f]
+
+networks:
+  api.openweathermap.org:
+    type: api
+    actions: [GET]
+    urls: [/data/2.5/forecast]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      caller: [_fetch_weather_api]
